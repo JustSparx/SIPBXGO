@@ -4,6 +4,7 @@
 //	sipbxgo ext add 101 -name Kitchen     create an extension (prints its password)
 //	sipbxgo ext list                      list extensions
 //	sipbxgo reg list                      show registered phones
+//	sipbxgo call list                     show call history
 //
 // Run `sipbxgo help` for everything.
 package main
@@ -35,6 +36,7 @@ Usage:
   sipbxgo ext set <number> [-name N] [-secret S] [-new-secret] [-enable|-disable]
   sipbxgo ext del <number>                      Delete an extension
   sipbxgo reg list                              Show registered phones
+  sipbxgo call list [-n 20]                     Show recent call history
   sipbxgo version                               Print version
 
 Configuration is read from SIPBX_* environment variables; see README.md.
@@ -64,6 +66,8 @@ func run(args []string) error {
 		return withStore(cfg, func(st *store.Store) error { return extCmd(st, args[1:]) })
 	case "reg":
 		return withStore(cfg, func(st *store.Store) error { return regCmd(st, args[1:]) })
+	case "call", "calls":
+		return withStore(cfg, func(st *store.Store) error { return callCmd(st, args[1:]) })
 	case "version", "-version", "--version":
 		fmt.Println("sipbxgo", pbx.Version)
 		return nil
@@ -109,9 +113,6 @@ func serve(cfg *config.Config) error {
 	if len(exts) == 0 {
 		log.Warn("no extensions yet — create one with: sipbxgo ext add 101 -name \"Kitchen\"")
 	}
-	if cfg.PublicIP == "" {
-		log.Warn("SIPBX_PUBLIC_IP is not set; phones behind NAT will need it once calling is enabled")
-	}
 
 	srv, err := pbx.New(cfg, st, log)
 	if err != nil {
@@ -119,6 +120,10 @@ func serve(cfg *config.Config) error {
 	}
 	if err := srv.Listen(); err != nil {
 		return err
+	}
+	if cfg.PublicIP == "" {
+		log.Warn("SIPBX_PUBLIC_IP not set; using auto-detected address — set it if phones can't hear each other",
+			"detected", srv.PublicIP())
 	}
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()

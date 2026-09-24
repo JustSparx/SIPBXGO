@@ -8,18 +8,21 @@ or a pop-up location. There are no trunks and no outside line, and none of the
 Asterisk/FreePBX sprawl. It runs as one static binary in a small Docker
 container, with one SQLite file for state.
 
-> **Status: early development (Phase 1).** Phones can register and
-> authenticate. Calling between extensions is next.
+> **Status: early development (Phase 1).** Phones register and call each
+> other, with audio relayed through the server so NAT is not a problem.
 
 ## Features
 
 | | Status |
 |---|---|
 | Registration with digest auth (UDP + TCP) | ✅ |
-| Multiple phones per extension | ✅ |
+| Extension-to-extension calls, audio relayed through the server (NAT-safe) | ✅ |
+| Multiple phones per extension (all ring, first to answer wins) | ✅ |
+| Hold / resume, DTMF (RFC 2833 and SIP INFO), busy, cancel | ✅ |
+| Call history | ✅ |
 | Auto-ban of password guessers and SIP scanners | ✅ |
 | CLI for managing extensions | ✅ |
-| Extension-to-extension calls with RTP media relay (NAT-safe) | 🚧 next |
+| Call transfer | planned |
 | Web UI (extensions, live registrations, active calls, call history) | planned |
 | TLS + SRTP | planned |
 | Hold music, voicemail, conference rooms | planned |
@@ -42,7 +45,12 @@ docker compose exec sipbxgo sipbxgo reg list
 docker compose logs -f
 ```
 
-Open the SIP port on the VPS firewall, UDP **and** TCP (for example `ufw allow 5060`).
+Open the firewall for SIP (UDP **and** TCP) and the audio port range:
+
+```sh
+ufw allow 5060
+ufw allow 10000:10999/udp
+```
 
 CI also publishes images to `ghcr.io/justsparx/sipbxgo`. The repository is
 private, so the VPS needs `docker login ghcr.io` with a token that has
@@ -57,6 +65,7 @@ sipbxgo ext show <number>                        show one, including its passwor
 sipbxgo ext set <number> [-name N] [-secret S] [-new-secret] [-enable|-disable]
 sipbxgo ext del <number>                         delete
 sipbxgo reg list                                 registered phones: source IP, transport, user agent
+sipbxgo call list [-n 20]                        recent calls: who, when, how long, who hung up
 ```
 
 Extension numbers are 2–8 digits. The SIP **username is the extension number**.
@@ -72,6 +81,8 @@ You can run the CLI while the server is up; changes take effect immediately.
 | Password | from `sipbxgo ext add` / `ext show` |
 | Transport | UDP, or TCP if your router's SIP ALG causes trouble |
 | Registration expiry | 60–300 s |
+| Codecs | anything both phones support (G.722 HD and G.711 work everywhere); the PBX passes audio through untouched |
+| NAT / STUN / ICE | not needed: leave off or at the defaults, the PBX relays all audio |
 
 **Poly/Obihai OBi phones:** OBi phones have several SIP account slots (SP1–SP6).
 Keep Google Voice on its slot and put SIPBXGO on a free one, for example SP2. Set
@@ -86,7 +97,7 @@ All settings are environment variables:
 
 | Variable | Default | Meaning |
 |---|---|---|
-| `SIPBX_PUBLIC_IP` | *(empty)* | Public IP of the server. Required once calling is enabled. |
+| `SIPBX_PUBLIC_IP` | auto-detected | Public IP written into SIP and SDP. Auto-detection is right on a typical VPS; set it explicitly if the server is itself behind NAT. |
 | `SIPBX_SIP_ADDR` | `:5060` | SIP bind address (UDP + TCP). A non-standard port cuts scanner noise a lot. |
 | `SIPBX_DATA_DIR` | `./data` (`/data` in Docker) | Where `sipbxgo.db` lives |
 | `SIPBX_REALM` | `sipbxgo` | Digest auth realm |
@@ -95,6 +106,9 @@ All settings are environment variables:
 | `SIPBX_BAN_WINDOW` | `10m` | Window for counting failures |
 | `SIPBX_BAN_DURATION` | `1h` | How long a ban lasts |
 | `SIPBX_TRUSTED_NETS` | *(empty)* | Comma-separated IPs/CIDRs that are never banned |
+| `SIPBX_RTP_PORTS` | `10000-10999` | UDP port range for call audio (4 ports per call) |
+| `SIPBX_RING_TIMEOUT` | `60s` | How long a call rings before giving up |
+| `SIPBX_MEDIA_TIMEOUT` | `5m` | Hang up a call when neither phone has sent audio for this long (e.g. one lost power) |
 | `SIPBX_LOG_LEVEL` | `info` | `debug`, `info`, `warn`, `error` |
 | `SIPBX_SIP_DEBUG` | *(empty)* | Set to anything to log every SIP message |
 
@@ -107,7 +121,11 @@ All settings are environment variables:
   work out which extensions exist.
 - Passwords are stored in plain text in the SQLite file, because the phones
   and (later) auto-provisioning need them. Protect the data volume and its backups.
-- Until TLS is added (Phase 3), SIP signaling travels unencrypted.
+- Calls require authentication too. Caller ID is always the extension that
+  authenticated, so a phone can't pretend to be another extension.
+- The media relay only accepts audio from the IP of the phone in the call, so
+  outsiders can't inject audio into it.
+- Until TLS/SRTP is added (Phase 3), signaling and audio travel unencrypted.
 
 ## Development
 
@@ -126,6 +144,9 @@ internal/store/       SQLite: extensions, registrations (migrations in store.go)
 internal/sipauth/     digest auth (stateless nonces) + request guard
 internal/security/    auto-ban list, scanner detection
 internal/registrar/   REGISTER handling
+internal/b2bua/       call engine: INVITE/BYE/re-INVITE, forking, call history
+internal/sdp/         SDP parsing and rewriting for the relay
+internal/media/       RTP/RTCP relay with NAT latching
 internal/pbx/         SIP server wiring
 ```
 

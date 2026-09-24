@@ -1,5 +1,5 @@
 // Package pbx assembles the SIP server: transports, request routing and the
-// components (registrar, and later the B2BUA and media) behind them.
+// components behind them (registrar, call engine, media relay).
 package pbx
 
 import (
@@ -8,9 +8,12 @@ import (
 	"fmt"
 	"log/slog"
 	"net"
+	"net/netip"
 	"time"
 
+	"github.com/JustSparx/SIPBXGO/internal/b2bua"
 	"github.com/JustSparx/SIPBXGO/internal/config"
+	"github.com/JustSparx/SIPBXGO/internal/media"
 	"github.com/JustSparx/SIPBXGO/internal/registrar"
 	"github.com/JustSparx/SIPBXGO/internal/security"
 	"github.com/JustSparx/SIPBXGO/internal/sipauth"
@@ -22,29 +25,35 @@ import (
 // Version is set at build time via -ldflags.
 var Version = "dev"
 
-const allowMethods = "INVITE, ACK, CANCEL, BYE, OPTIONS, REGISTER"
+const allowMethods = b2bua.AllowMethods + ", REGISTER"
 
 type Server struct {
-	cfg   *config.Config
-	store *store.Store
-	log   *slog.Logger
+	cfg      *config.Config
+	store    *store.Store
+	log      *slog.Logger
+	publicIP netip.Addr
 
 	ua        *sipgo.UserAgent
 	sip       *sipgo.Server
+	client    *sipgo.Client
 	bans      *security.BanList
 	guard     *sipauth.Guard
 	registrar *registrar.Registrar
+	engine    *b2bua.Engine
 
 	udp net.PacketConn
 	tcp net.Listener
 }
 
 func New(cfg *config.Config, st *store.Store, log *slog.Logger) (*Server, error) {
-	opts := []sipgo.UserAgentOption{sipgo.WithUserAgent("SIPBXGO/" + Version)}
-	if cfg.PublicIP != "" {
-		opts = append(opts, sipgo.WithUserAgentHostname(cfg.PublicIP))
+	publicIP, err := resolvePublicIP(cfg.PublicIP)
+	if err != nil {
+		return nil, err
 	}
-	ua, err := sipgo.NewUA(opts...)
+	ua, err := sipgo.NewUA(
+		sipgo.WithUserAgent("SIPBXGO/"+Version),
+		sipgo.WithUserAgentHostname(publicIP.String()),
+	)
 	if err != nil {
 		return nil, fmt.Errorf("sip user agent: %w", err)
 	}
@@ -53,26 +62,67 @@ func New(cfg *config.Config, st *store.Store, log *slog.Logger) (*Server, error)
 		ua.Close()
 		return nil, fmt.Errorf("sip server: %w", err)
 	}
+	// Via host is the public IP; the port is filled from the socket used.
+	client, err := sipgo.NewClient(ua, sipgo.WithClientHostname(publicIP.String()))
+	if err != nil {
+		ua.Close()
+		return nil, fmt.Errorf("sip client: %w", err)
+	}
 
 	bans := security.NewBanList(cfg.BanThreshold, cfg.BanWindow, cfg.BanDuration, cfg.TrustedNets)
 	guard := &sipauth.Guard{Auth: sipauth.New(cfg.Realm), Exts: st, Bans: bans, Log: log}
+	engine := b2bua.New(
+		b2bua.Config{RingTimeout: cfg.RingTimeout, MediaTimeout: cfg.MediaTimeout},
+		st, guard, media.NewPortPool(cfg.RTPPortMin, cfg.RTPPortMax), client, log)
 
 	s := &Server{
 		cfg:       cfg,
 		store:     st,
 		log:       log,
+		publicIP:  publicIP,
 		ua:        ua,
 		sip:       srv,
+		client:    client,
 		bans:      bans,
 		guard:     guard,
 		registrar: registrar.New(st, guard, cfg.MinExpires, cfg.MaxExpires, log),
+		engine:    engine,
 	}
 
 	srv.OnRegister(s.guarded(s.registrar.HandleRegister))
 	srv.OnOptions(s.guarded(s.handleOptions))
+	srv.OnInvite(s.guarded(engine.HandleInvite))
+	srv.OnAck(s.guarded(engine.HandleAck))
+	srv.OnBye(s.guarded(engine.HandleBye))
+	srv.OnCancel(s.guarded(engine.HandleCancel))
+	srv.OnInfo(s.guarded(engine.HandleInDialog))
+	srv.OnUpdate(s.guarded(engine.HandleInDialog))
+	srv.OnRefer(s.guarded(engine.HandleRefer))
 	srv.OnNoRoute(s.guarded(s.handleNotAllowed))
 	return s, nil
 }
+
+// resolvePublicIP uses the configured address, or else the local address
+// this host would use to reach the internet (correct on a typical VPS whose
+// public IP is on its interface; set SIPBX_PUBLIC_IP when behind NAT).
+func resolvePublicIP(configured string) (netip.Addr, error) {
+	if configured != "" {
+		return netip.ParseAddr(configured)
+	}
+	conn, err := net.Dial("udp4", "192.0.2.1:9") // TEST-NET; no packet is sent
+	if err != nil {
+		return netip.MustParseAddr("127.0.0.1"), nil
+	}
+	defer conn.Close()
+	ap, err := netip.ParseAddrPort(conn.LocalAddr().String())
+	if err != nil {
+		return netip.Addr{}, err
+	}
+	return ap.Addr().Unmap(), nil
+}
+
+// PublicIP is the address advertised to phones.
+func (s *Server) PublicIP() netip.Addr { return s.publicIP }
 
 // guarded drops requests from banned IPs and scanners before h sees them.
 // Dropping means no response at all: scanners learn nothing.
@@ -82,6 +132,16 @@ func (s *Server) guarded(h sipgo.RequestHandler) sipgo.RequestHandler {
 			return
 		}
 		h(req, tx)
+		if req.IsInvite() {
+			// sipgo hands the ACK for a non-2xx answer (401, 486...) to the
+			// application; consume it so it isn't logged as "ACK missed".
+			go func() {
+				select {
+				case <-tx.Acks():
+				case <-tx.Done():
+				}
+			}()
+		}
 	}
 }
 
@@ -94,9 +154,6 @@ func (s *Server) handleOptions(req *sip.Request, tx sip.ServerTransaction) {
 }
 
 func (s *Server) handleNotAllowed(req *sip.Request, tx sip.ServerTransaction) {
-	if req.IsAck() {
-		return
-	}
 	res := sip.NewResponseFromRequest(req, 405, "Method Not Allowed", nil)
 	res.AppendHeader(sip.NewHeader("Allow", allowMethods))
 	tx.Respond(res)
@@ -115,11 +172,19 @@ func (s *Server) Listen() error {
 		return fmt.Errorf("listen tcp %s: %w", s.cfg.SIPAddr, err)
 	}
 	s.udp, s.tcp = udp, tcp
+
+	udpAddr := udp.LocalAddr().(*net.UDPAddr)
+	tcpAddr := tcp.Addr().(*net.TCPAddr)
+	laddr := sip.Addr{IP: udpAddr.IP, Port: udpAddr.Port}
+	s.engine.Bind(s.publicIP, udpAddr.Port, tcpAddr.Port, laddr)
 	return nil
 }
 
 // UDPAddr is the bound UDP address (useful when SIPAddr uses port 0).
 func (s *Server) UDPAddr() string { return s.udp.LocalAddr().String() }
+
+// Engine exposes the call engine (active calls, for the UI and tests).
+func (s *Server) Engine() *b2bua.Engine { return s.engine }
 
 // Serve handles SIP traffic until ctx is cancelled or a transport fails.
 // Listen must have been called first.
@@ -131,9 +196,11 @@ func (s *Server) Serve(ctx context.Context) error {
 	go func() { errc <- s.sip.ServeUDP(s.udp) }()
 	go func() { errc <- s.sip.ServeTCP(s.tcp) }()
 	s.log.Info("SIP listening", "udp", s.udp.LocalAddr(), "tcp", s.tcp.Addr(),
-		"public_ip", s.cfg.PublicIP, "realm", s.cfg.Realm)
+		"public_ip", s.publicIP, "realm", s.cfg.Realm,
+		"rtp_ports", fmt.Sprintf("%d-%d", s.cfg.RTPPortMin, s.cfg.RTPPortMax))
 
 	go s.housekeeping(ctx)
+	go s.engine.Monitor(ctx)
 
 	var err error
 	select {
@@ -144,6 +211,8 @@ func (s *Server) Serve(ctx context.Context) error {
 		}
 	}
 	cancel()
+	// Hang up gracefully so phones don't sit on dead calls after a restart.
+	s.engine.HangupAll()
 	s.udp.Close()
 	s.tcp.Close()
 	s.sip.Close()
