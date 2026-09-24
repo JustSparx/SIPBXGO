@@ -355,9 +355,12 @@ func (c *Call) hangup(by string) {
 			}()
 		}
 		wg.Wait()
-		c.e.unregister(c)
 		c.relay.Close()
 		c.record(store.CallAnswered, by)
+		// Unregister last: until then HangupAll can still find this call,
+		// and its hangup blocks on endOnce until the record is written, so
+		// shutdown never closes the database under a call being recorded.
+		c.e.unregister(c)
 	})
 }
 
