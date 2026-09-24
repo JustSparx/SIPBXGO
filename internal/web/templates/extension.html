@@ -1,0 +1,105 @@
+{{define "content"}}{{with .Data}}{{$e := .Ext}}
+<p class="crumb"><a href="/extensions">← Extensions</a></p>
+<div class="page-head">
+  <h1><span class="lamp big {{if not $e.Enabled}}disabled{{else if .InCall}}busy{{else if .Phones}}on{{else}}off{{end}}"></span><span class="mono">{{$e.Number}}</span>{{with $e.Name}} <span class="muted-strong">{{.}}</span>{{end}}</h1>
+  <span class="muted">{{if not $e.Enabled}}Disabled{{else if .InCall}}On a call{{else if .Phones}}{{len .Phones}} phone{{if gt (len .Phones) 1}}s{{end}} registered{{else}}Offline{{end}}</span>
+</div>
+{{with .Error}}<p class="error" role="alert">{{.}}</p>{{end}}
+
+<div class="grid">
+  <section class="panel setup{{if .Created}} highlight{{end}}">
+    <h2>Phone setup</h2>
+    <dl class="kv">
+      <dt>Server / registrar / proxy</dt>
+      <dd><code class="mono">{{.Server}}</code> <button type="button" class="btn ghost small" data-copy="{{.Server}}">Copy</button></dd>
+      <dt>Port</dt>
+      <dd><code class="mono">{{.Port}}</code></dd>
+      <dt>Transport</dt>
+      <dd>UDP <span class="hint">(TCP if the router mangles SIP)</span></dd>
+      <dt>Username / auth ID</dt>
+      <dd><code class="mono">{{$e.Number}}</code> <button type="button" class="btn ghost small" data-copy="{{$e.Number}}">Copy</button></dd>
+      <dt>Password</dt>
+      <dd>
+        <code class="mono secret" id="secret" data-secret="{{$e.Secret}}">{{if .Created}}{{$e.Secret}}{{else}}••••••••••••{{end}}</code>
+        <button type="button" class="btn ghost small" data-reveal="secret">{{if .Created}}Hide{{else}}Show{{end}}</button>
+        <button type="button" class="btn ghost small" data-copy="{{$e.Secret}}">Copy</button>
+      </dd>
+    </dl>
+    <p class="hint">No STUN, ICE or NAT settings are needed: the server relays all audio.</p>
+  </section>
+
+  <section class="panel">
+    <h2>Registered phones</h2>
+    <div data-refresh="/live/extensions/{{$e.Number}}" data-interval="5000">{{template "live" $}}</div>
+  </section>
+
+  <section class="panel">
+    <h2>Settings</h2>
+    <form method="post" action="/extensions/{{$e.Number}}" class="stack">
+      <label>Name<input name="name" value="{{$e.Name}}" maxlength="40" placeholder="Kitchen"></label>
+      <label class="check"><input type="checkbox" name="enabled"{{if $e.Enabled}} checked{{end}}> Enabled <span class="hint">Disabled extensions can't register or be called.</span></label>
+      <button class="btn primary">Save</button>
+    </form>
+  </section>
+
+  <section class="panel">
+    <h2>Change password</h2>
+    <form method="post" action="/extensions/{{$e.Number}}/secret" class="stack"
+          data-confirm="Change the password for {{$e.Number}}? Phones using the old one will stop registering within a few minutes.">
+      <label>New password <span class="hint">optional</span><input name="secret" type="text" autocomplete="off" spellcheck="false" placeholder="Leave blank to generate one" class="mono"></label>
+      <button class="btn">Set new password</button>
+    </form>
+  </section>
+
+  <section class="panel wide">
+    <h2>Recent calls</h2>
+    {{if .Calls}}
+    <div class="table-wrap"><table>
+      <thead><tr><th>When</th><th>From</th><th>To</th><th>Result</th><th class="num">Duration</th></tr></thead>
+      <tbody>
+      {{range .Calls}}
+        <tr>
+          <td title="{{full .StartedAt}}">{{stamp .StartedAt}}</td>
+          <td class="mono">{{.Caller}}</td>
+          <td class="mono">{{.Callee}}</td>
+          <td><span class="badge {{statusClass .Status}}">{{status .Status}}</span></td>
+          <td class="num mono">{{if .AnsweredAt.IsZero}}—{{else}}{{clock .Duration}}{{end}}</td>
+        </tr>
+      {{end}}
+      </tbody>
+    </table></div>
+    <p><a href="/calls?ext={{$e.Number}}">All calls for {{$e.Number}} →</a></p>
+    {{else}}
+    <p class="empty">No calls yet.</p>
+    {{end}}
+  </section>
+
+  <section class="panel wide danger">
+    <h2>Delete extension</h2>
+    <form method="post" action="/extensions/{{$e.Number}}/delete" class="row"
+          data-confirm="Delete extension {{$e.Number}}? Its phones will be unregistered. Call history is kept.">
+      <p class="muted">Removes the extension and unregisters its phones. Call history is kept.</p>
+      <button class="btn danger">Delete {{$e.Number}}</button>
+    </form>
+  </section>
+</div>
+{{end}}{{end}}
+
+{{define "live"}}{{with .Data}}
+{{if .Phones}}
+<ul class="devices">
+  {{range .Phones}}
+  <li>
+    <span class="lamp {{if $.Data.InCall}}busy{{else}}on{{end}}"></span>
+    <div>
+      <strong>{{device .UserAgent}}</strong>
+      <span class="mono muted">{{.Source}} · {{.Transport}}</span>
+      <span class="muted">Seen {{ago .UpdatedAt}} · renews within {{until .ExpiresAt}}</span>
+    </div>
+  </li>
+  {{end}}
+</ul>
+{{else}}
+<p class="empty">No phone is registered to this extension.</p>
+{{end}}
+{{end}}{{end}}

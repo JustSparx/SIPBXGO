@@ -19,7 +19,7 @@ COPY --from=build /out/sipbxgo /usr/local/bin/sipbxgo
 COPY --from=build --chown=65532:65532 /out/data /data
 ENV SIPBX_DATA_DIR=/data
 VOLUME ["/data"]
-# SIP (UDP+TCP) and the RTP media relay range (SIPBX_RTP_PORTS).
-EXPOSE 5060/udp 5060/tcp 10000-10999/udp
+# SIP (UDP+TCP), the RTP media relay range (SIPBX_RTP_PORTS), web UI.
+EXPOSE 5060/udp 5060/tcp 10000-10999/udp 8080/tcp
 ENTRYPOINT ["sipbxgo"]
 CMD ["serve"]

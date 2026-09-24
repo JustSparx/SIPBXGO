@@ -2,9 +2,11 @@ package store
 
 import (
 	"context"
+	"crypto/rand"
 	"database/sql"
 	"errors"
 	"fmt"
+	"math/big"
 	"regexp"
 	"strings"
 	"time"
@@ -124,4 +126,19 @@ func scanExtension(r scanner) (*Extension, error) {
 	}
 	e.CreatedAt, e.UpdatedAt = time.Unix(created, 0), time.Unix(updated, 0)
 	return &e, nil
+}
+
+// GenerateSecret returns a 16-character password without look-alike
+// characters, since it will often be typed into a phone's keypad or web UI.
+func GenerateSecret() string {
+	const alphabet = "abcdefghjkmnpqrstuvwxyzABCDEFGHJKLMNPQRSTUVWXYZ23456789"
+	b := make([]byte, 16)
+	for i := range b {
+		n, err := rand.Int(rand.Reader, big.NewInt(int64(len(alphabet))))
+		if err != nil {
+			panic(err)
+		}
+		b[i] = alphabet[n.Int64()]
+	}
+	return string(b)
 }

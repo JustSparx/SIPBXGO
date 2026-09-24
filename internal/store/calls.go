@@ -47,11 +47,18 @@ func (s *Store) SaveCall(ctx context.Context, c *CallRecord) error {
 	return err
 }
 
-// ListCalls returns the most recent calls, newest first.
-func (s *Store) ListCalls(ctx context.Context, limit int) ([]*CallRecord, error) {
-	rows, err := s.db.QueryContext(ctx,
-		`SELECT id, caller, callee, status, hangup_by, started_at, answered_at, ended_at
-		 FROM calls ORDER BY started_at DESC, rowid DESC LIMIT ?`, limit)
+// ListCalls returns calls newest first, optionally only those involving ext
+// (ext == "" means all), skipping offset rows.
+func (s *Store) ListCalls(ctx context.Context, ext string, limit, offset int) ([]*CallRecord, error) {
+	q := `SELECT id, caller, callee, status, hangup_by, started_at, answered_at, ended_at FROM calls`
+	var args []any
+	if ext != "" {
+		q += ` WHERE caller = ? OR callee = ?`
+		args = append(args, ext, ext)
+	}
+	q += ` ORDER BY started_at DESC, rowid DESC LIMIT ? OFFSET ?`
+	args = append(args, limit, offset)
+	rows, err := s.db.QueryContext(ctx, q, args...)
 	if err != nil {
 		return nil, err
 	}

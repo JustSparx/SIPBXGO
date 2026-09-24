@@ -40,6 +40,7 @@ type Call struct {
 	ringing    bool      // 180 sent to caller
 	earlyMedia bool      // 183 with SDP sent to caller
 	reinvite   bool      // re-INVITE in progress (another one gets 491)
+	held       bool      // last media update put the call on hold
 	sdpTo      [2][]byte // last SDP the PBX sent to each side
 	endOnce    sync.Once
 }
@@ -65,6 +66,18 @@ func (c *Call) target(side int) sip.Uri {
 		return c.a.InviteRequest.Contact().Address
 	}
 	return c.b.InviteResponse.Contact().Address
+}
+
+// OnHold reports whether either phone has the call on hold.
+func (c *Call) OnHold() bool {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.held
+}
+
+// Packets returns how many media packets each phone has sent (RTP+RTCP).
+func (c *Call) Packets() (caller, callee uint64) {
+	return c.relay.Legs[media.Caller].PacketsIn.Load(), c.relay.Legs[media.Callee].PacketsIn.Load()
 }
 
 type forkResult struct {
@@ -405,7 +418,11 @@ func (c *Call) forward(req *sip.Request, tx sip.ServerTransaction, from int) {
 		}
 	}
 	if isInvite && res.IsSuccess() && len(resBody) > 0 {
-		c.log.Info("call media updated", "by", sideName(from), "hold", holdState(req.Body()))
+		held := holdState(req.Body())
+		c.mu.Lock()
+		c.held = held
+		c.mu.Unlock()
+		c.log.Info("call media updated", "by", sideName(from), "hold", held)
 	}
 	c.respond(req, tx, res.StatusCode, res.Reason, resBody)
 }

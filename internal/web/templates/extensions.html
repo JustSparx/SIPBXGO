@@ -1,0 +1,39 @@
+{{define "content"}}{{with .Data}}
+<div class="page-head">
+  <h1>Extensions</h1>
+  <span class="muted">{{len .Rows}} total</span>
+</div>
+
+<div class="split">
+  <section class="panel">
+    {{if .Rows}}
+    <div class="table-wrap"><table class="rows">
+      <thead><tr><th>Extension</th><th>Name</th><th>Phones</th><th>Status</th></tr></thead>
+      <tbody>
+      {{range .Rows}}
+        <tr>
+          <td><span class="lamp {{if not .Enabled}}disabled{{else if .InCall}}busy{{else if .Phones}}on{{else}}off{{end}}"></span><a class="mono ext" href="/extensions/{{.Number}}">{{.Number}}</a></td>
+          <td><a href="/extensions/{{.Number}}">{{with .Name}}{{.}}{{else}}<span class="muted">—</span>{{end}}</a></td>
+          <td class="mono">{{.Phones}}</td>
+          <td>{{if not .Enabled}}<span class="muted">Disabled</span>{{else if .InCall}}On a call{{else if .Phones}}Online{{else}}<span class="muted">Offline</span>{{end}}</td>
+        </tr>
+      {{end}}
+      </tbody>
+    </table></div>
+    {{else}}
+    <p class="empty">No extensions yet. Create the first one here.</p>
+    {{end}}
+  </section>
+
+  <section class="panel">
+    <h2>Add extension</h2>
+    {{with .Error}}<p class="error" role="alert">{{.}}</p>{{end}}
+    <form method="post" action="/extensions" class="stack">
+      <label>Number<input name="number" value="{{.Form.Number}}" inputmode="numeric" pattern="[0-9]{2,8}" placeholder="101" required class="mono"></label>
+      <label>Name<input name="name" value="{{.Form.Name}}" placeholder="Kitchen" maxlength="40"></label>
+      <label>Password <span class="hint">optional</span><input name="secret" type="text" autocomplete="off" spellcheck="false" placeholder="Leave blank to generate one" class="mono"></label>
+      <button class="btn primary">Create extension</button>
+    </form>
+  </section>
+</div>
+{{end}}{{end}}

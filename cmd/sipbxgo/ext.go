@@ -2,10 +2,8 @@ package main
 
 import (
 	"context"
-	"crypto/rand"
 	"flag"
 	"fmt"
-	"math/big"
 	"os"
 	"text/tabwriter"
 	"time"
@@ -36,7 +34,7 @@ func extCmd(st *store.Store, args []string) error {
 			return errUsage
 		}
 		if *secret == "" {
-			*secret = generateSecret()
+			*secret = store.GenerateSecret()
 		}
 		e := &store.Extension{Number: number, Name: *name, Secret: *secret, Enabled: true}
 		if err := st.CreateExtension(ctx, e); err != nil {
@@ -120,7 +118,7 @@ func extCmd(st *store.Store, args []string) error {
 			e.Secret = *secret
 		}
 		if *newSecret {
-			e.Secret = generateSecret()
+			e.Secret = store.GenerateSecret()
 		}
 		if *enable && *disable {
 			return fmt.Errorf("-enable and -disable are mutually exclusive")
@@ -162,7 +160,7 @@ func callCmd(st *store.Store, args []string) error {
 	if err := fs.Parse(args[1:]); err != nil {
 		return err
 	}
-	calls, err := st.ListCalls(context.Background(), *limit)
+	calls, err := st.ListCalls(context.Background(), "", *limit, 0)
 	if err != nil {
 		return err
 	}
@@ -196,17 +194,68 @@ func regCmd(st *store.Store, args []string) error {
 	return w.Flush()
 }
 
-// generateSecret returns a 16-character password without look-alike
-// characters, since it will often be typed into a phone's keypad or web UI.
-func generateSecret() string {
-	const alphabet = "abcdefghjkmnpqrstuvwxyzABCDEFGHJKLMNPQRSTUVWXYZ23456789"
-	b := make([]byte, 16)
-	for i := range b {
-		n, err := rand.Int(rand.Reader, big.NewInt(int64(len(alphabet))))
-		if err != nil {
-			panic(err)
-		}
-		b[i] = alphabet[n.Int64()]
+func adminCmd(st *store.Store, args []string) error {
+	if len(args) == 0 {
+		return errUsage
 	}
-	return string(b)
+	ctx := context.Background()
+	sub, args := args[0], args[1:]
+	name, args := splitPositional(args)
+
+	switch sub {
+	case "add", "passwd":
+		fs := flag.NewFlagSet("admin "+sub, flag.ContinueOnError)
+		password := fs.String("password", "", "password (generated if empty)")
+		if err := fs.Parse(args); err != nil {
+			return err
+		}
+		if name == "" {
+			return errUsage
+		}
+		generated := *password == ""
+		if generated {
+			*password = store.GenerateSecret() + store.GenerateSecret()[:4]
+		}
+		var err error
+		if sub == "add" {
+			err = st.CreateAdmin(ctx, name, *password)
+		} else {
+			err = st.SetAdminPassword(ctx, name, *password)
+		}
+		if err != nil {
+			return err
+		}
+		if sub == "add" {
+			fmt.Printf("Created admin %s\n", name)
+		} else {
+			fmt.Printf("Password reset for %s (their sessions were signed out)\n", name)
+		}
+		if generated {
+			fmt.Printf("  password: %s\n  Change it after signing in (Account page).\n", *password)
+		}
+		return nil
+
+	case "list":
+		admins, err := st.ListAdmins(ctx)
+		if err != nil {
+			return err
+		}
+		w := tabwriter.NewWriter(os.Stdout, 0, 0, 2, ' ', 0)
+		fmt.Fprintln(w, "ADMIN\tCREATED")
+		for _, a := range admins {
+			fmt.Fprintf(w, "%s\t%s\n", a.Username, a.CreatedAt.Format("2006-01-02"))
+		}
+		return w.Flush()
+
+	case "del", "delete", "rm":
+		if name == "" {
+			return errUsage
+		}
+		if err := st.DeleteAdmin(ctx, name); err != nil {
+			return err
+		}
+		fmt.Printf("Deleted admin %s\n", name)
+		return nil
+	}
+	return errUsage
 }

@@ -5,6 +5,7 @@
 //	sipbxgo ext list                      list extensions
 //	sipbxgo reg list                      show registered phones
 //	sipbxgo call list                     show call history
+//	sipbxgo admin add admin               create a web UI login
 //
 // Run `sipbxgo help` for everything.
 package main
@@ -23,7 +24,12 @@ import (
 	"github.com/JustSparx/SIPBXGO/internal/config"
 	"github.com/JustSparx/SIPBXGO/internal/pbx"
 	"github.com/JustSparx/SIPBXGO/internal/store"
+	"github.com/JustSparx/SIPBXGO/internal/web"
 	"github.com/emiago/sipgo/sip"
+
+	// Embedded time zone data, so TZ=America/Los_Angeles works in the
+	// minimal container image.
+	_ "time/tzdata"
 )
 
 const usage = `SIPBXGO — a small SIP PBX for extension-to-extension calling.
@@ -37,6 +43,9 @@ Usage:
   sipbxgo ext del <number>                      Delete an extension
   sipbxgo reg list                              Show registered phones
   sipbxgo call list [-n 20]                     Show recent call history
+  sipbxgo admin add <name> [-password P]        Create a web UI admin (password generated if omitted)
+  sipbxgo admin passwd <name> [-password P]     Reset an admin's password
+  sipbxgo admin list | del <name>               List or delete admins
   sipbxgo version                               Print version
 
 Configuration is read from SIPBX_* environment variables; see README.md.
@@ -68,6 +77,8 @@ func run(args []string) error {
 		return withStore(cfg, func(st *store.Store) error { return regCmd(st, args[1:]) })
 	case "call", "calls":
 		return withStore(cfg, func(st *store.Store) error { return callCmd(st, args[1:]) })
+	case "admin":
+		return withStore(cfg, func(st *store.Store) error { return adminCmd(st, args[1:]) })
 	case "version", "-version", "--version":
 		fmt.Println("sipbxgo", pbx.Version)
 		return nil
@@ -128,7 +139,26 @@ func serve(cfg *config.Config) error {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 	log.Info("starting sipbxgo", "version", pbx.Version, "data_dir", cfg.DataDir, "extensions", len(exts))
+
+	webDone := make(chan error, 1)
+	if cfg.HTTPAddr != "off" {
+		ui, err := web.New(cfg, st, srv, log, pbx.Version)
+		if err != nil {
+			return err
+		}
+		if admins, _ := st.ListAdmins(ctx); len(admins) == 0 {
+			log.Warn("no web UI admin yet — create one with: sipbxgo admin add admin")
+		}
+		go func() { webDone <- ui.Run(ctx) }()
+	} else {
+		webDone <- nil
+	}
+
 	err = srv.Serve(ctx)
+	stop()
+	if werr := <-webDone; werr != nil && err == nil {
+		err = werr
+	}
 	log.Info("stopped")
 	return err
 }

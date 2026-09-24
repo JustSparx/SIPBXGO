@@ -1,0 +1,55 @@
+{{define "content"}}{{with .Data}}
+<div class="page-head">
+  <h1>Security</h1>
+</div>
+
+<section class="panel">
+  <h2>Banned addresses</h2>
+  {{if .Bans}}
+  <div class="table-wrap"><table>
+    <thead><tr><th>Address</th><th>Banned until</th><th>Time left</th><th></th></tr></thead>
+    <tbody>
+    {{range .Bans}}
+      <tr>
+        <td class="mono">{{.Addr}}</td>
+        <td>{{stamp .Until}}</td>
+        <td class="mono">{{until .Until}}</td>
+        <td class="num">
+          <form method="post" action="/security/unban" data-confirm="Lift the ban on {{.Addr}}?">
+            <input type="hidden" name="ip" value="{{.Addr}}">
+            <button class="btn ghost small">Unban</button>
+          </form>
+        </td>
+      </tr>
+    {{end}}
+    </tbody>
+  </table></div>
+  {{else}}
+  <p class="empty">No banned addresses right now.</p>
+  {{end}}
+  <p class="hint">Banned addresses get no response at all. Bans are kept in memory and cleared when the server restarts.</p>
+</section>
+
+<div class="grid">
+  <section class="panel">
+    <h2>Auto-ban policy</h2>
+    <ul class="plain">
+      <li>An address that fails to log in <strong>{{.Threshold}}</strong> times within <strong>{{dur .Window}}</strong> is banned for <strong>{{dur .Duration}}</strong>.</li>
+      <li>Known SIP scanners (friendly-scanner, SIPVicious and similar) are banned on first contact.</li>
+      <li>Unknown extensions and wrong passwords get the same answer, so scanners can't find valid extensions.</li>
+    </ul>
+    <p class="hint">Tune with <code>SIPBX_BAN_THRESHOLD</code>, <code>SIPBX_BAN_WINDOW</code> and <code>SIPBX_BAN_DURATION</code>.</p>
+  </section>
+
+  <section class="panel">
+    <h2>Trusted networks</h2>
+    {{if .Trusted}}
+    <ul class="chips">{{range .Trusted}}<li><span class="mono">{{.}}</span></li>{{end}}</ul>
+    <p class="hint">These are never banned.</p>
+    {{else}}
+    <p class="empty">None.</p>
+    <p class="hint">Set <code>SIPBX_TRUSTED_NETS</code> (for example your office's public IP) so a mistyped password there never locks the office out.</p>
+    {{end}}
+  </section>
+</div>
+{{end}}{{end}}

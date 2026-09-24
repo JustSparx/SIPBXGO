@@ -79,6 +79,17 @@ var migrations = []string{
 		ended_at    INTEGER NOT NULL
 	);
 	CREATE INDEX calls_started ON calls(started_at DESC);`,
+	`CREATE TABLE admins (
+		username      TEXT PRIMARY KEY,
+		password_hash TEXT NOT NULL,
+		created_at    INTEGER NOT NULL
+	);
+	CREATE TABLE sessions (
+		token_hash TEXT PRIMARY KEY,
+		username   TEXT NOT NULL REFERENCES admins(username) ON DELETE CASCADE,
+		expires_at INTEGER NOT NULL,
+		created_at INTEGER NOT NULL
+	);`,
 }
 
 func (s *Store) migrate(ctx context.Context) error {

@@ -1,26 +1,36 @@
+# Site-specific settings live in .env (copy .env.example), so this file
+# never needs local edits and `git pull` stays clean.
 services:
   sipbxgo:
     build: .
     image: ghcr.io/justsparx/sipbxgo:latest
     restart: unless-stopped
     # Host networking: SIP needs the real source address of each phone for
-    # NAT traversal, and media (RTP) will use a wide UDP port range that
+    # NAT traversal, and media (RTP) uses a wide UDP port range that
     # Docker's port publishing handles poorly.
     network_mode: host
     environment:
-      # The server's public IP (auto-detected if unset; set it to be sure).
-      SIPBX_PUBLIC_IP: "203.0.113.10"
-      # A non-standard port cuts scanner noise dramatically. Set the same
-      # port as the "proxy/registrar port" on each phone.
-      SIPBX_SIP_ADDR: ":5060"
-      # UDP ports for call audio; open these on the firewall too. 4 per call.
-      SIPBX_RTP_PORTS: "10000-10999"
-      SIPBX_REALM: "sipbxgo"
-      SIPBX_LOG_LEVEL: "info"
-      # Never auto-ban these (comma-separated IPs or CIDRs), e.g. your office.
-      # SIPBX_TRUSTED_NETS: "198.51.100.0/24"
+      SIPBX_PUBLIC_IP: "${SIPBX_PUBLIC_IP:-}"
+      SIPBX_SIP_DOMAIN: "${SIPBX_DOMAIN:-}"
+      SIPBX_SIP_ADDR: ":${SIPBX_SIP_PORT:-5060}"
+      SIPBX_RTP_PORTS: "${SIPBX_RTP_PORTS:-10000-10999}"
+      # 172.17.0.1 is the host's address on Docker's default bridge:
+      # reachable by a reverse proxy container, not from the internet.
+      SIPBX_HTTP_ADDR: "${SIPBX_HTTP_ADDR:-172.17.0.1:8080}"
+      SIPBX_TRUSTED_NETS: "${SIPBX_TRUSTED_NETS:-}"
+      SIPBX_LOG_LEVEL: "${SIPBX_LOG_LEVEL:-info}"
+      TZ: "${TZ:-UTC}"
     volumes:
       - sipbxgo-data:/data
+    # Traefik routing for the web UI. Traefik reaches host-network containers
+    # via host.docker.internal, so the Traefik service itself needs:
+    #   extra_hosts: ["host.docker.internal:host-gateway"]
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.sipbxgo.rule=Host(`${SIPBX_DOMAIN:-pbx.example.com}`)"
+      - "traefik.http.routers.sipbxgo.entrypoints=websecure"
+      - "traefik.http.routers.sipbxgo.tls.certresolver=letsencrypt"
+      - "traefik.http.services.sipbxgo.loadbalancer.server.port=8080"
 
 volumes:
   sipbxgo-data:

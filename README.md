@@ -8,8 +8,9 @@ or a pop-up location. There are no trunks and no outside line, and none of the
 Asterisk/FreePBX sprawl. It runs as one static binary in a small Docker
 container, with one SQLite file for state.
 
-> **Status: early development (Phase 1).** Phones register and call each
-> other, with audio relayed through the server so NAT is not a problem.
+> **Status: early development (Phase 2).** Phones register and call each
+> other, with audio relayed through the server so NAT is not a problem, and
+> everything is managed from a web UI.
 
 ## Features
 
@@ -21,9 +22,9 @@ container, with one SQLite file for state.
 | Hold / resume, DTMF (RFC 2833 and SIP INFO), busy, cancel | ✅ |
 | Call history | ✅ |
 | Auto-ban of password guessers and SIP scanners | ✅ |
-| CLI for managing extensions | ✅ |
+| Web UI: live dashboard, extensions, call history, bans | ✅ |
+| CLI for managing extensions and admins | ✅ |
 | Call transfer | planned |
-| Web UI (extensions, live registrations, active calls, call history) | planned |
 | TLS + SRTP | planned |
 | Hold music, voicemail, conference rooms | planned |
 | Busy lights on phone buttons (BLF), phone auto-provisioning | planned |
@@ -33,12 +34,14 @@ container, with one SQLite file for state.
 ```sh
 git clone https://github.com/JustSparx/SIPBXGO.git
 cd SIPBXGO
-# Edit docker-compose.yml: set SIPBX_PUBLIC_IP to your VPS's public IP.
+cp .env.example .env    # then edit: public IP, domain, time zone
 docker compose up -d --build
 
-# Create extensions. Each one prints the password to put into the phone.
+# Create a web UI login (prints a generated password)
+docker compose exec sipbxgo sipbxgo admin add admin
+
+# Create extensions in the web UI, or from the CLI:
 docker compose exec sipbxgo sipbxgo ext add 101 -name "Kitchen"
-docker compose exec sipbxgo sipbxgo ext add 102 -name "Office"
 
 # Watch phones come online
 docker compose exec sipbxgo sipbxgo reg list
@@ -56,6 +59,36 @@ CI also publishes images to `ghcr.io/justsparx/sipbxgo`. The repository is
 private, so the VPS needs `docker login ghcr.io` with a token that has
 `read:packages` before it can pull. Building on the VPS as shown above avoids that.
 
+## Web UI
+
+The web UI shows live registrations and calls, and manages extensions
+(including a copy-paste phone setup card), call history, and bans. It listens
+on `SIPBX_HTTP_ADDR`, which defaults to `127.0.0.1:8080` (not reachable from
+the network). **Put it behind a TLS reverse proxy.** It holds every phone's
+password.
+
+### Behind Traefik
+
+SIPBXGO uses host networking, so it can't join Traefik's Docker network.
+Traefik reaches host-network containers through `host.docker.internal`, which
+on Linux you have to define yourself:
+
+1. On the **Traefik** service, add:
+   ```yaml
+   extra_hosts:
+     - "host.docker.internal:host-gateway"
+   ```
+2. In `.env`, set `SIPBX_DOMAIN` to the UI's hostname. `SIPBX_HTTP_ADDR`
+   defaults to `172.17.0.1:8080`, the host's address on Docker's default
+   bridge (check with `ip -4 addr show docker0`).
+3. Point a DNS record (e.g. `pbx.example.com`) at the server.
+4. If `ufw` is active, allow containers to reach the UI:
+   `ufw allow from 172.16.0.0/12 to any port 8080 proto tcp`.
+
+Sign-in uses admin accounts created with `sipbxgo admin add <name>`.
+Passwords are bcrypt-hashed and sessions last 7 days. After 10 failed sign-ins
+an IP is locked out for 15 minutes. Cross-site form posts are rejected.
+
 ## Managing extensions
 
 ```
@@ -66,6 +99,8 @@ sipbxgo ext set <number> [-name N] [-secret S] [-new-secret] [-enable|-disable]
 sipbxgo ext del <number>                         delete
 sipbxgo reg list                                 registered phones: source IP, transport, user agent
 sipbxgo call list [-n 20]                        recent calls: who, when, how long, who hung up
+sipbxgo admin add <name> [-password P]           web UI admin (password generated if omitted)
+sipbxgo admin passwd <name> | list | del <name>
 ```
 
 Extension numbers are 2–8 digits. The SIP **username is the extension number**.
@@ -93,7 +128,8 @@ model and firmware; a step-by-step guide will come with the auto-provisioning wo
 
 ## Configuration
 
-All settings are environment variables:
+All settings are environment variables. With Docker, set them in `.env`
+(see `.env.example`); the compose file maps them into the container.
 
 | Variable | Default | Meaning |
 |---|---|---|
@@ -109,6 +145,9 @@ All settings are environment variables:
 | `SIPBX_RTP_PORTS` | `10000-10999` | UDP port range for call audio (4 ports per call) |
 | `SIPBX_RING_TIMEOUT` | `60s` | How long a call rings before giving up |
 | `SIPBX_MEDIA_TIMEOUT` | `5m` | Hang up a call when neither phone has sent audio for this long (e.g. one lost power) |
+| `SIPBX_HTTP_ADDR` | `127.0.0.1:8080` | Web UI listen address (`off` disables it) |
+| `SIPBX_SIP_DOMAIN` | *(empty)* | Server name shown in the web UI's phone setup card (defaults to the public IP) |
+| `TZ` | `UTC` | Time zone for times shown in the UI, e.g. `America/Los_Angeles` |
 | `SIPBX_LOG_LEVEL` | `info` | `debug`, `info`, `warn`, `error` |
 | `SIPBX_SIP_DEBUG` | *(empty)* | Set to anything to log every SIP message |
 
@@ -140,7 +179,7 @@ Layout:
 ```
 cmd/sipbxgo/          CLI + entry point
 internal/config/      environment configuration
-internal/store/       SQLite: extensions, registrations (migrations in store.go)
+internal/store/       SQLite: extensions, registrations, calls, admins, sessions
 internal/sipauth/     digest auth (stateless nonces) + request guard
 internal/security/    auto-ban list, scanner detection
 internal/registrar/   REGISTER handling
@@ -148,6 +187,7 @@ internal/b2bua/       call engine: INVITE/BYE/re-INVITE, forking, call history
 internal/sdp/         SDP parsing and rewriting for the relay
 internal/media/       RTP/RTCP relay with NAT latching
 internal/pbx/         SIP server wiring
+internal/web/         web UI: handlers, templates, static assets (embedded)
 ```
 
 Built on [sipgo](https://github.com/emiago/sipgo) and
