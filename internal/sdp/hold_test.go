@@ -1,6 +1,7 @@
 package sdp
 
 import (
+	"net/netip"
 	"strings"
 	"testing"
 )
@@ -37,5 +38,21 @@ func TestAnswerDirectionAndG711(t *testing.T) {
 	info.Formats = []int{9, 8, 0}
 	if info.G711() != 8 {
 		t.Error("A-law preference ignored")
+	}
+}
+
+func TestBuildLocal(t *testing.T) {
+	key, _ := NewCrypto(1, SuiteAES80)
+	body := Build(Local{IP: netip.MustParseAddr("203.0.113.10"), Port: 12000, PT: 8, DTMF: 101, Crypto: key, SessionID: 7, Version: 2})
+	info, err := Parse(body)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if info.Port != 12000 || info.G711() != 8 || info.DTMF != 101 || !info.Secure || !info.Cryptos[0].Equal(key) || info.Direction != "sendrecv" {
+		t.Fatalf("round trip lost something: %+v\n%s", info, body)
+	}
+	plain, _ := Parse(Build(Local{IP: netip.MustParseAddr("203.0.113.10"), Port: 12000, PT: 0, DTMF: -1, Direction: "inactive"}))
+	if plain.Secure || plain.DTMF != -1 || plain.Direction != "inactive" {
+		t.Fatalf("plain: %+v", plain)
 	}
 }

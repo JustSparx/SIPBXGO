@@ -10,6 +10,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/JustSparx/SIPBXGO/internal/conference"
 	"github.com/JustSparx/SIPBXGO/internal/security"
 	"github.com/JustSparx/SIPBXGO/internal/store"
 	"github.com/JustSparx/SIPBXGO/internal/tlscert"
@@ -92,6 +93,8 @@ func (s *Server) snapshot(r *http.Request) (*snapshot, error) {
 // ---- dashboard ----
 
 type dashData struct {
+	Rooms      []conference.RoomStatus
+	RoomNames  map[string]string
 	Extensions int
 	PhonesOn   int
 	ExtsOn     int
@@ -107,7 +110,16 @@ func (s *Server) dashData(r *http.Request) (*dashData, error) {
 		return nil, err
 	}
 	d := &dashData{Extensions: len(sn.exts), PhonesOn: len(sn.regs), ExtsOn: len(sn.phones),
-		Bans: len(s.pbx.Bans()), Calls: sn.calls}
+		Bans: len(s.pbx.Bans()), Calls: sn.calls, Rooms: s.pbx.Conferences(), RoomNames: map[string]string{}}
+	if len(d.Rooms) > 0 {
+		rooms, err := s.store.ListRooms(r.Context())
+		if err != nil {
+			return nil, err
+		}
+		for _, rm := range rooms {
+			d.RoomNames[rm.Number] = rm.Name
+		}
+	}
 	for _, reg := range sn.regs {
 		d.Phones = append(d.Phones, phoneRow{Registration: reg, Name: sn.names[reg.Extension], InCall: sn.inCall[reg.Extension]})
 	}
@@ -198,6 +210,10 @@ func (s *Server) createExtension(w http.ResponseWriter, r *http.Request) {
 	err := s.store.CreateExtension(r.Context(), &store.Extension{Number: number, Name: name, Secret: secret, Enabled: true})
 	if errors.Is(err, store.ErrExists) {
 		fail("Extension " + number + " already exists.")
+		return
+	}
+	if errors.Is(err, store.ErrNumberTaken) {
+		fail(number + " is already a conference room number.")
 		return
 	}
 	if err != nil {

@@ -15,6 +15,7 @@ import (
 
 	"github.com/JustSparx/SIPBXGO/internal/audio"
 	"github.com/JustSparx/SIPBXGO/internal/b2bua"
+	"github.com/JustSparx/SIPBXGO/internal/conference"
 	"github.com/JustSparx/SIPBXGO/internal/config"
 	"github.com/JustSparx/SIPBXGO/internal/media"
 	"github.com/JustSparx/SIPBXGO/internal/registrar"
@@ -83,8 +84,12 @@ func New(cfg *config.Config, st *store.Store, log *slog.Logger) (*Server, error)
 		ua.Close()
 		return nil, err
 	}
+	var loop *media.Loop
+	if music != nil {
+		loop = media.NewLoop(music)
+	}
 	engine := b2bua.New(
-		b2bua.Config{RingTimeout: cfg.RingTimeout, MediaTimeout: cfg.MediaTimeout, HoldMusic: music},
+		b2bua.Config{RingTimeout: cfg.RingTimeout, MediaTimeout: cfg.MediaTimeout, HoldMusic: loop, RoomMusic: music},
 		st, guard, media.NewPortPool(cfg.RTPPortMin, cfg.RTPPortMax), client, log)
 
 	s := &Server{
@@ -145,14 +150,15 @@ func resolvePublicIP(configured string) (netip.Addr, error) {
 	return ap.Addr().Unmap(), nil
 }
 
-// loadHoldMusic returns the loop to play on hold: the built-in music, a
-// WAV file, or nil for silence.
-func loadHoldMusic(setting string) (*media.Loop, error) {
+// loadHoldMusic returns the music (8 kHz PCM) to play on hold and to
+// someone alone in a conference room: the built-in music, a WAV file, or
+// nil for silence.
+func loadHoldMusic(setting string) ([]int16, error) {
 	switch strings.ToLower(setting) {
 	case "off", "none", "silence":
 		return nil, nil
 	case "", "builtin", "default":
-		return media.NewLoop(audio.HoldMusic()), nil
+		return audio.HoldMusic(), nil
 	}
 	pcm, err := audio.LoadWAV(setting)
 	if err != nil {
@@ -161,7 +167,7 @@ func loadHoldMusic(setting string) (*media.Loop, error) {
 	if len(pcm) < audio.SampleRate {
 		return nil, fmt.Errorf("SIPBX_HOLD_MUSIC: %s is shorter than a second", setting)
 	}
-	return media.NewLoop(pcm), nil
+	return pcm, nil
 }
 
 // PublicIP is the address advertised to phones.
@@ -263,6 +269,9 @@ func (s *Server) UDPAddr() string { return s.udp.LocalAddr().String() }
 
 // Engine exposes the call engine (active calls, for the UI and tests).
 func (s *Server) Engine() *b2bua.Engine { return s.engine }
+
+// Conferences lists conference rooms in use and who is in them.
+func (s *Server) Conferences() []conference.RoomStatus { return s.engine.Conferences() }
 
 // ActiveCalls lists connected calls.
 func (s *Server) ActiveCalls() []*b2bua.Call { return s.engine.ActiveCalls() }

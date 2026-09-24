@@ -100,3 +100,37 @@ func TestRegistrations(t *testing.T) {
 		t.Fatal("bindings survived extension delete")
 	}
 }
+
+func TestRooms(t *testing.T) {
+	st := openTest(t)
+	ctx := context.Background()
+	st.CreateExtension(ctx, &Extension{Number: "101", Secret: "x", Enabled: true})
+
+	if err := st.CreateRoom(ctx, &Room{Number: "101"}); !errors.Is(err, ErrNumberTaken) {
+		t.Fatalf("room on an extension number: %v", err)
+	}
+	if err := st.CreateRoom(ctx, &Room{Number: "800", PIN: "12a"}); err == nil {
+		t.Fatal("non-numeric PIN accepted")
+	}
+	if err := st.CreateRoom(ctx, &Room{Number: "800", Name: "Family", PIN: "4321"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := st.CreateExtension(ctx, &Extension{Number: "800", Secret: "x"}); !errors.Is(err, ErrNumberTaken) {
+		t.Fatalf("extension on a room number: %v", err)
+	}
+	r, err := st.GetRoom(ctx, "800")
+	if err != nil || r.Name != "Family" || r.PIN != "4321" {
+		t.Fatalf("get: %+v %v", r, err)
+	}
+	r.PIN = ""
+	st.UpdateRoom(ctx, r)
+	if rooms, _ := st.ListRooms(ctx); len(rooms) != 1 || rooms[0].PIN != "" {
+		t.Fatalf("list after update: %+v", rooms)
+	}
+	if err := st.DeleteRoom(ctx, "800"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := st.GetRoom(ctx, "800"); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("get after delete: %v", err)
+	}
+}

@@ -20,18 +20,19 @@ type layout struct {
 }
 
 var pageFiles = map[string]string{
-	"login":      "login.html",
-	"dashboard":  "dashboard.html",
-	"extensions": "extensions.html",
-	"extension":  "extension.html",
-	"calls":      "calls.html",
-	"security":   "security.html",
-	"account":    "account.html",
+	"login":       "login.html",
+	"dashboard":   "dashboard.html",
+	"extensions":  "extensions.html",
+	"extension":   "extension.html",
+	"calls":       "calls.html",
+	"conferences": "conferences.html",
+	"security":    "security.html",
+	"account":     "account.html",
 }
 
 var titles = map[string]string{
 	"login": "Sign in", "dashboard": "Dashboard", "extensions": "Extensions",
-	"extension": "Extension", "calls": "Call history", "security": "Security", "account": "Account",
+	"extension": "Extension", "calls": "Call history", "conferences": "Conference rooms", "security": "Security", "account": "Account",
 }
 
 // flashes are success messages selected by ?ok=... after a redirect.
@@ -43,6 +44,9 @@ var flashes = map[string]string{
 	"unbanned":   "Ban lifted.",
 	"password":   "Your password was changed. Other sessions were signed out.",
 	"noextfound": "That extension no longer exists.",
+	"roomadded":  "Room created. Any extension can now dial its number.",
+	"roomsaved":  "Room saved.",
+	"roomgone":   "Room deleted.",
 }
 
 var funcs = template.FuncMap{

@@ -9,6 +9,7 @@ package sdp
 
 import (
 	"errors"
+	"fmt"
 	"net/netip"
 	"strconv"
 	"strings"
@@ -33,6 +34,8 @@ type Info struct {
 	Cryptos []*Crypto
 	// Formats are the audio payload types from the m= line, in preference order.
 	Formats []int
+	// DTMF is the telephone-event (RFC 4733 keypad tones) payload type, or -1.
+	DTMF int
 }
 
 // G711 returns the phone's preferred G.711 payload type (0 = PCMU,
@@ -59,7 +62,7 @@ func Parse(body []byte) (*Info, error) {
 		sessionDir, mediaDir   string
 		inAudio, found, done   bool
 		seenM                  bool // past the session-level section
-		info                   Info
+		info                   = Info{DTMF: -1}
 	)
 	for _, line := range lines(body) {
 		if len(line) < 2 || line[1] != '=' {
@@ -100,6 +103,13 @@ func Parse(body []byte) (*Info, error) {
 				sessionAddr = addr
 			} else if inAudio {
 				mediaAddr = addr
+			}
+		case strings.HasPrefix(line, "a=rtpmap:") && inAudio:
+			f := strings.Fields(strings.TrimPrefix(line, "a=rtpmap:"))
+			if len(f) == 2 && strings.HasPrefix(strings.ToLower(f[1]), "telephone-event/8000") {
+				if pt, err := strconv.Atoi(f[0]); err == nil {
+					info.DTMF = pt
+				}
 			}
 		case strings.HasPrefix(line, "a=crypto:") && inAudio:
 			if c, err := parseCrypto(strings.TrimPrefix(line, "a=crypto:")); err == nil && c != nil {
@@ -319,4 +329,63 @@ func BumpVersion(body []byte) []byte {
 		out.WriteString(line + "\r\n")
 	}
 	return []byte(out.String())
+}
+
+// Local describes audio the PBX itself terminates (a conference), for
+// building SDP from scratch rather than rewriting a phone's.
+type Local struct {
+	IP        netip.Addr
+	Port      int
+	PT        int     // 0 (PCMU) or 8 (PCMA)
+	DTMF      int     // telephone-event payload type, or -1 for none
+	Crypto    *Crypto // SRTP key, or nil for plain RTP
+	SessionID uint64
+	Version   uint64
+	Direction string // "" means sendrecv
+}
+
+// Build renders SDP for a PBX-terminated audio stream.
+func Build(l Local) []byte {
+	addrType := "IP4"
+	if l.IP.Is6() && !l.IP.Is4In6() {
+		addrType = "IP6"
+	}
+	ip := l.IP.Unmap().String()
+	codec := "PCMU/8000"
+	if l.PT == 8 {
+		codec = "PCMA/8000"
+	}
+	proto, formats := "RTP/AVP", strconv.Itoa(l.PT)
+	if l.Crypto != nil {
+		proto = "RTP/SAVP"
+	}
+	if l.DTMF >= 0 {
+		formats += " " + strconv.Itoa(l.DTMF)
+	}
+	dir := l.Direction
+	if dir == "" {
+		dir = "sendrecv"
+	}
+	var b strings.Builder
+	w := func(format string, args ...any) {
+		b.WriteString(fmt.Sprintf(format, args...))
+		b.WriteString("\r\n")
+	}
+	w("v=0")
+	w("o=sipbxgo %d %d IN %s %s", l.SessionID, l.Version, addrType, ip)
+	w("s=SIPBXGO")
+	w("c=IN %s %s", addrType, ip)
+	w("t=0 0")
+	w("m=audio %d %s %s", l.Port, proto, formats)
+	w("a=rtpmap:%d %s", l.PT, codec)
+	if l.DTMF >= 0 {
+		w("a=rtpmap:%d telephone-event/8000", l.DTMF)
+		w("a=fmtp:%d 0-15", l.DTMF)
+	}
+	w("a=ptime:20")
+	w("a=%s", dir)
+	if l.Crypto != nil {
+		w("a=%s", l.Crypto.String())
+	}
+	return []byte(b.String())
 }
