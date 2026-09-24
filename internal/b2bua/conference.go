@@ -180,6 +180,11 @@ func (e *Engine) endConference(l *confLeg, by, reason string, bye bool) {
 			attrs = append(attrs, "reason", reason)
 		}
 		l.log.Info("conference call ended", attrs...)
+		// Forget the leg last, so a concurrent shutdown (HangupAll) still
+		// finds it and waits on endOnce until the record is written.
+		e.mu.Lock()
+		delete(e.confByA, l.ds.ID)
+		e.mu.Unlock()
 	})
 }
 
