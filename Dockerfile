@@ -15,7 +15,10 @@ RUN CGO_ENABLED=0 go build -trimpath \
 # ---- runtime ----
 # distroless/static: no shell, no package manager, runs as non-root (uid 65532).
 FROM gcr.io/distroless/static-debian12:nonroot
+LABEL org.opencontainers.image.title="SIPBXGO"       org.opencontainers.image.description="Small self-hosted SIP PBX for extension-to-extension calling"       org.opencontainers.image.source="https://github.com/JustSparx/SIPBXGO"       org.opencontainers.image.licenses="Apache-2.0"
 COPY --from=build /out/sipbxgo /usr/local/bin/sipbxgo
+# License, attribution notice and third-party license texts travel with the image.
+COPY --from=build /src/LICENSE /src/NOTICE /src/THIRD_PARTY_NOTICES /usr/share/doc/sipbxgo/
 COPY --from=build --chown=65532:65532 /out/data /data
 ENV SIPBX_DATA_DIR=/data
 VOLUME ["/data"]

@@ -32,6 +32,8 @@ container, with one SQLite file for state. There's no Asterisk/FreePBX sprawl.
 - [Troubleshooting](#troubleshooting)
 - [Development](#development)
 - [Roadmap](#roadmap)
+- [Contributing](#contributing)
+- [License](#license)
 
 ---
 
@@ -485,3 +487,24 @@ later versions, for larger setups:
 - **Busy lights (BLF)** on phone line keys.
 - **Call transfer** (blind and attended).
 - **Voicemail.**
+
+## Contributing
+
+Issues and pull requests are welcome. Please read
+[CONTRIBUTING.md](CONTRIBUTING.md) first; for features, open an issue to
+discuss before writing code. Report security issues privately as described in
+[SECURITY.md](SECURITY.md).
+
+## License
+
+SIPBXGO is free and open-source software under the
+[Apache License 2.0](LICENSE). Copyright 2026 JustSparx and the SIPBXGO
+contributors.
+
+It builds on excellent open-source work, including
+[sipgo](https://github.com/emiago/sipgo) (BSD-2-Clause),
+[pion](https://github.com/pion) rtp/rtcp/srtp (MIT),
+[modernc.org/sqlite](https://gitlab.com/cznic/sqlite) (BSD-3-Clause) and the
+Go standard library (BSD-3-Clause). The full list, with every copyright notice
+and license text, is in [THIRD_PARTY_NOTICES](THIRD_PARTY_NOTICES). It is
+also included in the Docker image under `/usr/share/doc/sipbxgo/`.
