@@ -1,0 +1,28 @@
+{{define "content"}}{{with .Data}}
+<div class="page-head">
+  <h1>Account</h1>
+</div>
+
+<div class="grid">
+  <section class="panel">
+    <h2>Change your password</h2>
+    {{with .Error}}<p class="error" role="alert">{{.}}</p>{{end}}
+    <form method="post" action="/account/password" class="stack">
+      <label>Current password<input type="password" name="current" autocomplete="current-password" required></label>
+      <label>New password <span class="hint">at least 10 characters</span><input type="password" name="new" autocomplete="new-password" minlength="10" maxlength="72" required></label>
+      <label>Confirm new password<input type="password" name="confirm" autocomplete="new-password" minlength="10" maxlength="72" required></label>
+      <button class="btn primary">Change password</button>
+    </form>
+  </section>
+
+  <section class="panel">
+    <h2>Admins</h2>
+    <ul class="plain">
+      {{range .Admins}}<li><span class="mono">{{.Username}}</span> <span class="muted">since {{stamp .CreatedAt}}</span></li>{{end}}
+    </ul>
+    <p class="hint">Add or remove admins on the server:</p>
+    <pre class="mono">sipbxgo admin add &lt;name&gt;
+sipbxgo admin del &lt;name&gt;</pre>
+  </section>
+</div>
+{{end}}{{end}}

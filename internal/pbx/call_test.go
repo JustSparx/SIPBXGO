@@ -220,7 +220,7 @@ func lastCall(t *testing.T, st *store.Store) *store.CallRecord {
 	t.Helper()
 	// The record is written just after the SIP exchange finishes.
 	for i := 0; i < 50; i++ {
-		if calls, _ := st.ListCalls(context.Background(), 1); len(calls) == 1 {
+		if calls, _ := st.ListCalls(context.Background(), "", 1, 0); len(calls) == 1 {
 			return calls[0]
 		}
 		time.Sleep(20 * time.Millisecond)

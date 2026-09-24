@@ -13,3 +13,6 @@
 .claude/settings.local.json
 .idea/
 .vscode/
+
+# site config for docker compose
+.env

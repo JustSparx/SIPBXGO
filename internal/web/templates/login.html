@@ -1,0 +1,20 @@
+{{define "content"}}{{with .Data}}
+<div class="login">
+  <div class="login-card">
+    <div class="login-brand"><img src="/static/icon.svg" alt="" width="40" height="40"><span>SIPBXGO</span></div>
+    {{if .NoAdmins}}
+    <div class="notice">
+      <strong>No admin account yet.</strong> Create one on the server, then sign in:
+      <pre class="mono">docker compose exec sipbxgo sipbxgo admin add admin</pre>
+    </div>
+    {{end}}
+    {{with .Error}}<p class="error" role="alert">{{.}}</p>{{end}}
+    <form method="post" action="/login" class="stack">
+      <input type="hidden" name="next" value="{{.Next}}">
+      <label>Username<input name="username" value="{{.Username}}" autocomplete="username" autocapitalize="off" spellcheck="false" required autofocus></label>
+      <label>Password<input type="password" name="password" autocomplete="current-password" required></label>
+      <button class="btn primary">Sign in</button>
+    </form>
+  </div>
+</div>
+{{end}}{{end}}

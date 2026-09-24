@@ -1,0 +1,82 @@
+{{define "content"}}
+<div class="page-head">
+  <h1>Dashboard</h1>
+  <span class="live" title="Updates every few seconds">Live</span>
+</div>
+<div data-refresh="/live/dashboard" data-interval="3000">{{template "live" .}}</div>
+{{end}}
+
+{{define "live"}}{{with .Data}}
+<section class="stats">
+  <a class="stat" href="/extensions">
+    <span class="num mono">{{.ExtsOn}}<small>/{{.Extensions}}</small></span>
+    <span class="label">Extensions online</span>
+  </a>
+  <div class="stat">
+    <span class="num mono">{{.PhonesOn}}</span>
+    <span class="label">Phones registered</span>
+  </div>
+  <div class="stat{{if .Calls}} hot{{end}}">
+    <span class="num mono">{{len .Calls}}</span>
+    <span class="label">Calls in progress</span>
+  </div>
+  <a class="stat" href="/security">
+    <span class="num mono">{{.Bans}}</span>
+    <span class="label">Banned IPs</span>
+  </a>
+</section>
+
+<section class="panel">
+  <h2>Calls in progress</h2>
+  {{if .Calls}}
+  <div class="table-wrap"><table>
+    <thead><tr><th>Caller</th><th></th><th>Callee</th><th>State</th><th>Audio</th><th class="num">Time</th></tr></thead>
+    <tbody>
+    {{range .Calls}}
+      <tr>
+        <td><span class="lamp busy"></span><a class="mono ext" href="/extensions/{{.Caller}}">{{.Caller}}</a> <span class="muted">{{.CallerName}}</span></td>
+        <td class="arrow" aria-hidden="true">→</td>
+        <td><span class="lamp busy"></span><a class="mono ext" href="/extensions/{{.Callee}}">{{.Callee}}</a> <span class="muted">{{.CalleeName}}</span></td>
+        <td>{{if .Held}}<span class="badge warn">On hold</span>{{else}}<span class="badge ok">Connected</span>{{end}}</td>
+        <td>{{with .Audio}}{{if eq . "both"}}<span class="muted">Both ways</span>{{else if eq . "none"}}<span class="badge warn">No audio yet</span>{{else}}<span class="badge bad" title="Only one phone's audio is reaching the server — usually a NAT or firewall problem on the silent side">{{.}}</span>{{end}}{{end}}</td>
+        <td class="num mono">{{clock (since .Answered)}}</td>
+      </tr>
+    {{end}}
+    </tbody>
+  </table></div>
+  {{else}}
+  <p class="empty">No calls right now.</p>
+  {{end}}
+</section>
+
+<section class="panel">
+  <h2>Registered phones</h2>
+  {{if .Phones}}
+  <div class="table-wrap"><table>
+    <thead><tr><th>Extension</th><th>Device</th><th>Address</th><th>Transport</th><th>Last seen</th></tr></thead>
+    <tbody>
+    {{range .Phones}}
+      <tr>
+        <td><span class="lamp {{if .InCall}}busy{{else}}on{{end}}"></span><a class="mono ext" href="/extensions/{{.Extension}}">{{.Extension}}</a> <span class="muted">{{.Name}}</span></td>
+        <td>{{device .UserAgent}}</td>
+        <td class="mono">{{.Source}}</td>
+        <td class="mono">{{.Transport}}</td>
+        <td title="Registration expires in {{until .ExpiresAt}}">{{ago .UpdatedAt}}</td>
+      </tr>
+    {{end}}
+    </tbody>
+  </table></div>
+  {{else}}
+  <p class="empty">No phones registered. Add an extension, then enter its settings into a phone.</p>
+  {{end}}
+</section>
+
+{{with .Offline}}
+<section class="panel">
+  <h2>Offline extensions</h2>
+  <ul class="chips">
+    {{range .}}<li><a href="/extensions/{{.Number}}"><span class="lamp {{if .Enabled}}off{{else}}disabled{{end}}"></span><span class="mono">{{.Number}}</span>{{with .Name}} {{.}}{{end}}</a></li>{{end}}
+  </ul>
+</section>
+{{end}}
+{{end}}{{end}}

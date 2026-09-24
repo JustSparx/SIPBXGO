@@ -50,17 +50,26 @@ type Config struct {
 	// either phone (e.g. a phone lost power mid-call).
 	MediaTimeout time.Duration
 
+	// HTTPAddr is where the web UI listens ("off" disables it). The default
+	// is loopback-only; put it behind a TLS reverse proxy to reach it remotely.
+	HTTPAddr string
+	// SIPDomain is the server name shown in phone setup instructions (e.g.
+	// pbx.example.com). Empty means show the public IP.
+	SIPDomain string
+
 	LogLevel string
 }
 
 // Load reads configuration from the environment.
 func Load() (*Config, error) {
 	c := &Config{
-		DataDir:  env("SIPBX_DATA_DIR", "./data"),
-		SIPAddr:  env("SIPBX_SIP_ADDR", ":5060"),
-		PublicIP: env("SIPBX_PUBLIC_IP", ""),
-		Realm:    env("SIPBX_REALM", "sipbxgo"),
-		LogLevel: env("SIPBX_LOG_LEVEL", "info"),
+		DataDir:   env("SIPBX_DATA_DIR", "./data"),
+		SIPAddr:   env("SIPBX_SIP_ADDR", ":5060"),
+		PublicIP:  env("SIPBX_PUBLIC_IP", ""),
+		Realm:     env("SIPBX_REALM", "sipbxgo"),
+		LogLevel:  env("SIPBX_LOG_LEVEL", "info"),
+		HTTPAddr:  env("SIPBX_HTTP_ADDR", "127.0.0.1:8080"),
+		SIPDomain: env("SIPBX_SIP_DOMAIN", ""),
 	}
 
 	var err error

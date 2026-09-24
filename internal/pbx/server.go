@@ -186,6 +186,18 @@ func (s *Server) UDPAddr() string { return s.udp.LocalAddr().String() }
 // Engine exposes the call engine (active calls, for the UI and tests).
 func (s *Server) Engine() *b2bua.Engine { return s.engine }
 
+// ActiveCalls lists connected calls.
+func (s *Server) ActiveCalls() []*b2bua.Call { return s.engine.ActiveCalls() }
+
+// Bans lists currently banned IPs.
+func (s *Server) Bans() []security.Ban { return s.bans.Active() }
+
+// Unban lifts a ban.
+func (s *Server) Unban(ip netip.Addr) { s.bans.Unban(ip) }
+
+// SIPPort is the port phones register to.
+func (s *Server) SIPPort() int { return s.udp.LocalAddr().(*net.UDPAddr).Port }
+
 // Serve handles SIP traffic until ctx is cancelled or a transport fails.
 // Listen must have been called first.
 func (s *Server) Serve(ctx context.Context) error {

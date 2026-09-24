@@ -1,0 +1,39 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="light dark">
+<title>{{.Title}} · SIPBXGO</title>
+<link rel="icon" href="/static/icon.svg" type="image/svg+xml">
+<link rel="stylesheet" href="/static/app.css">
+<script src="/static/app.js" defer></script>
+</head>
+<body{{if not .Admin}} class="bare"{{end}}>
+{{- if .Admin}}
+<header class="top">
+  <div class="top-inner">
+    <a class="brand" href="/"><img src="/static/icon.svg" alt="" width="22" height="22"><span>SIPBXGO</span></a>
+    <nav aria-label="Main">
+      <a href="/"{{if eq .Nav "dashboard"}} aria-current="page"{{end}}>Dashboard</a>
+      <a href="/extensions"{{if eq .Nav "extensions"}} aria-current="page"{{end}}>Extensions</a>
+      <a href="/calls"{{if eq .Nav "calls"}} aria-current="page"{{end}}>Calls</a>
+      <a href="/security"{{if eq .Nav "security"}} aria-current="page"{{end}}>Security</a>
+      <a href="/account"{{if eq .Nav "account"}} aria-current="page"{{end}}>Account</a>
+    </nav>
+    <form method="post" action="/logout" class="signout">
+      <span class="who mono">{{.Admin}}</span>
+      <button class="btn ghost small">Sign out</button>
+    </form>
+  </div>
+</header>
+{{- end}}
+<main>
+{{- with .Flash}}<p class="flash" role="status">{{.}}</p>{{end}}
+{{template "content" .}}
+</main>
+{{- if .Admin}}
+<footer>SIPBXGO <span class="mono">{{.Version}}</span></footer>
+{{- end}}
+</body>
+</html>

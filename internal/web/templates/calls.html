@@ -1,0 +1,43 @@
+{{define "content"}}{{with .Data}}
+<div class="page-head">
+  <h1>Call history</h1>
+  <form method="get" action="/calls" class="filter">
+    <label class="inline">Extension
+      <select name="ext" data-autosubmit>
+        <option value="">All</option>
+        {{range .Exts}}<option value="{{.Number}}"{{if eq .Number $.Data.Filter}} selected{{end}}>{{.Number}}{{with .Name}} · {{.}}{{end}}</option>{{end}}
+      </select>
+    </label>
+    <noscript><button class="btn small">Filter</button></noscript>
+  </form>
+</div>
+
+<section class="panel">
+  {{if .Calls}}
+  <div class="table-wrap"><table>
+    <thead><tr><th>When</th><th>From</th><th>To</th><th>Result</th><th class="num">Duration</th><th>Ended by</th></tr></thead>
+    <tbody>
+    {{range .Calls}}
+      <tr>
+        <td title="{{full .StartedAt}}">{{stamp .StartedAt}}</td>
+        <td><a class="mono ext" href="/extensions/{{.Caller}}">{{.Caller}}</a> <span class="muted">{{index $.Data.Names .Caller}}</span></td>
+        <td><a class="mono ext" href="/extensions/{{.Callee}}">{{.Callee}}</a> <span class="muted">{{index $.Data.Names .Callee}}</span></td>
+        <td><span class="badge {{statusClass .Status}}">{{status .Status}}</span></td>
+        <td class="num mono">{{if .AnsweredAt.IsZero}}—{{else}}{{clock .Duration}}{{end}}</td>
+        <td class="muted">{{.HangupBy}}</td>
+      </tr>
+    {{end}}
+    </tbody>
+  </table></div>
+  {{else}}
+  <p class="empty">{{if .Filter}}No calls involving {{.Filter}}{{else}}No calls yet{{end}}{{if gt .Page 1}} on this page{{end}}.</p>
+  {{end}}
+  {{if or .HasNext (gt .Page 1)}}
+  <nav class="pager" aria-label="Pages">
+    {{if gt .Page 1}}<a class="btn ghost small" href="{{.PageURL (add .Page -1)}}">← Newer</a>{{else}}<span></span>{{end}}
+    <span class="muted">Page {{.Page}}</span>
+    {{if .HasNext}}<a class="btn ghost small" href="{{.PageURL (add .Page 1)}}">Older →</a>{{else}}<span></span>{{end}}
+  </nav>
+  {{end}}
+</section>
+{{end}}{{end}}

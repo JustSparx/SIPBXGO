@@ -7,3 +7,4 @@ data
 *.exe
 /sipbxgo
 docker-compose*.yml
+.env
