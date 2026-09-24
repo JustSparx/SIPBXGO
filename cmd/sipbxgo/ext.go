@@ -153,6 +153,32 @@ func extCmd(st *store.Store, args []string) error {
 	return errUsage
 }
 
+func callCmd(st *store.Store, args []string) error {
+	if len(args) == 0 || args[0] != "list" {
+		return errUsage
+	}
+	fs := flag.NewFlagSet("call list", flag.ContinueOnError)
+	limit := fs.Int("n", 20, "number of calls to show")
+	if err := fs.Parse(args[1:]); err != nil {
+		return err
+	}
+	calls, err := st.ListCalls(context.Background(), *limit)
+	if err != nil {
+		return err
+	}
+	w := tabwriter.NewWriter(os.Stdout, 0, 0, 2, ' ', 0)
+	fmt.Fprintln(w, "STARTED\tFROM\tTO\tSTATUS\tDURATION\tHUNG UP BY")
+	for _, c := range calls {
+		dur := "-"
+		if !c.AnsweredAt.IsZero() {
+			dur = c.Duration().Round(time.Second).String()
+		}
+		fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%s\t%s\n", c.StartedAt.Format("2006-01-02 15:04:05"),
+			c.Caller, c.Callee, c.Status, dur, c.HangupBy)
+	}
+	return w.Flush()
+}
+
 func regCmd(st *store.Store, args []string) error {
 	if len(args) == 0 || args[0] != "list" {
 		return errUsage

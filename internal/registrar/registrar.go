@@ -122,6 +122,20 @@ func (r *Registrar) HandleRegister(req *sip.Request, tx sip.ServerTransaction) {
 	if h := req.CallID(); h != nil {
 		callID = h.Value()
 	}
+	// Existing bindings, to log new phones (or moved ones) at info level and
+	// routine refreshes at debug.
+	known := map[string]string{} // contact -> source
+	if len(bindings) > 0 {
+		existing, err := r.Store.ListRegistrations(ctx, ext.Number)
+		if err != nil {
+			r.serverError(req, tx, err)
+			return
+		}
+		for _, reg := range existing {
+			known[reg.Contact] = reg.Source
+		}
+	}
+
 	for _, b := range bindings {
 		contact := b.contact.Address.String()
 		if b.expires == 0 {
@@ -146,7 +160,11 @@ func (r *Registrar) HandleRegister(req *sip.Request, tx sip.ServerTransaction) {
 			r.serverError(req, tx, err)
 			return
 		}
-		r.Log.Debug("registered", "ext", ext.Number, "contact", contact,
+		level := slog.LevelDebug
+		if src, ok := known[contact]; !ok || src != reg.Source {
+			level = slog.LevelInfo
+		}
+		r.Log.Log(ctx, level, "registered", "ext", ext.Number, "contact", contact,
 			"source", reg.Source, "transport", reg.Transport, "expires", b.expires, "user_agent", ua)
 	}
 

@@ -8,11 +8,13 @@ services:
     # Docker's port publishing handles poorly.
     network_mode: host
     environment:
-      # REQUIRED for phones outside the VPS: the server's public IP.
+      # The server's public IP (auto-detected if unset; set it to be sure).
       SIPBX_PUBLIC_IP: "203.0.113.10"
       # A non-standard port cuts scanner noise dramatically. Set the same
       # port as the "proxy/registrar port" on each phone.
       SIPBX_SIP_ADDR: ":5060"
+      # UDP ports for call audio; open these on the firewall too. 4 per call.
+      SIPBX_RTP_PORTS: "10000-10999"
       SIPBX_REALM: "sipbxgo"
       SIPBX_LOG_LEVEL: "info"
       # Never auto-ban these (comma-separated IPs or CIDRs), e.g. your office.

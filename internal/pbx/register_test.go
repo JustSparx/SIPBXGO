@@ -19,6 +19,13 @@ import (
 // 102 (password "pw101" / "pw102") and returns its address and store.
 func testPBX(t *testing.T, banThreshold int) (string, *store.Store) {
 	t.Helper()
+	srv, st := startPBX(t, banThreshold)
+	return srv.UDPAddr(), st
+}
+
+// startPBX is testPBX returning the server itself.
+func startPBX(t *testing.T, banThreshold int) (*Server, *store.Store) {
+	t.Helper()
 	st, err := store.Open(filepath.Join(t.TempDir(), "t.db"))
 	if err != nil {
 		t.Fatal(err)
@@ -32,8 +39,9 @@ func testPBX(t *testing.T, banThreshold int) (string, *store.Store) {
 	}
 
 	cfg := &config.Config{
-		SIPAddr: "127.0.0.1:0", Realm: "sipbxgo", MinExpires: 60, MaxExpires: 300,
+		SIPAddr: "127.0.0.1:0", PublicIP: "127.0.0.1", Realm: "sipbxgo", MinExpires: 60, MaxExpires: 300,
 		BanThreshold: banThreshold, BanWindow: time.Minute, BanDuration: time.Minute,
+		RTPPortMin: 31000, RTPPortMax: 31999, RingTimeout: 5 * time.Second, MediaTimeout: time.Minute,
 	}
 	log := slog.New(slog.NewTextHandler(io.Discard, nil))
 	srv, err := New(cfg, st, log)
@@ -53,7 +61,7 @@ func testPBX(t *testing.T, banThreshold int) (string, *store.Store) {
 		close(done)
 	}()
 	t.Cleanup(func() { cancel(); <-done })
-	return srv.UDPAddr(), st
+	return srv, st
 }
 
 type phone struct {

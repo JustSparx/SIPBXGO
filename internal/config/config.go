@@ -40,6 +40,16 @@ type Config struct {
 	BanDuration  time.Duration
 	TrustedNets  []netip.Prefix
 
+	// RTP relay port range (inclusive). Each call uses 4 ports.
+	RTPPortMin int
+	RTPPortMax int
+
+	// RingTimeout is how long an unanswered call rings before giving up.
+	RingTimeout time.Duration
+	// MediaTimeout hangs up a call after this long with no RTP/RTCP from
+	// either phone (e.g. a phone lost power mid-call).
+	MediaTimeout time.Duration
+
 	LogLevel string
 }
 
@@ -80,7 +90,30 @@ func Load() (*Config, error) {
 			return nil, fmt.Errorf("SIPBX_PUBLIC_IP: %w", err)
 		}
 	}
+	if c.RTPPortMin, c.RTPPortMax, err = parsePortRange(env("SIPBX_RTP_PORTS", "10000-10999")); err != nil {
+		return nil, err
+	}
+	if c.RingTimeout, err = envDuration("SIPBX_RING_TIMEOUT", 60*time.Second); err != nil {
+		return nil, err
+	}
+	if c.MediaTimeout, err = envDuration("SIPBX_MEDIA_TIMEOUT", 5*time.Minute); err != nil {
+		return nil, err
+	}
 	return c, nil
+}
+
+// parsePortRange parses "10000-10999".
+func parsePortRange(s string) (int, int, error) {
+	lo, hi, ok := strings.Cut(s, "-")
+	if !ok {
+		return 0, 0, fmt.Errorf("SIPBX_RTP_PORTS: want MIN-MAX, got %q", s)
+	}
+	min, err1 := strconv.Atoi(strings.TrimSpace(lo))
+	max, err2 := strconv.Atoi(strings.TrimSpace(hi))
+	if err1 != nil || err2 != nil || min < 1024 || max > 65535 || max-min < 3 {
+		return 0, 0, fmt.Errorf("SIPBX_RTP_PORTS: invalid range %q (need 1024-65535, at least 4 ports)", s)
+	}
+	return min, max, nil
 }
 
 func env(key, def string) string {

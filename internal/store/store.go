@@ -68,6 +68,17 @@ var migrations = []string{
 		updated_at  INTEGER NOT NULL,
 		PRIMARY KEY (extension, contact)
 	);`,
+	`CREATE TABLE calls (
+		id          TEXT PRIMARY KEY,
+		caller      TEXT NOT NULL,
+		callee      TEXT NOT NULL,
+		status      TEXT NOT NULL,
+		hangup_by   TEXT NOT NULL DEFAULT '',
+		started_at  INTEGER NOT NULL,
+		answered_at INTEGER NOT NULL DEFAULT 0,
+		ended_at    INTEGER NOT NULL
+	);
+	CREATE INDEX calls_started ON calls(started_at DESC);`,
 }
 
 func (s *Store) migrate(ctx context.Context) error {
