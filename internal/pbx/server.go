@@ -10,8 +10,10 @@ import (
 	"log/slog"
 	"net"
 	"net/netip"
+	"strings"
 	"time"
 
+	"github.com/JustSparx/SIPBXGO/internal/audio"
 	"github.com/JustSparx/SIPBXGO/internal/b2bua"
 	"github.com/JustSparx/SIPBXGO/internal/config"
 	"github.com/JustSparx/SIPBXGO/internal/media"
@@ -76,8 +78,13 @@ func New(cfg *config.Config, st *store.Store, log *slog.Logger) (*Server, error)
 
 	bans := security.NewBanList(cfg.BanThreshold, cfg.BanWindow, cfg.BanDuration, cfg.TrustedNets)
 	guard := &sipauth.Guard{Auth: sipauth.New(cfg.Realm), Exts: st, Bans: bans, Log: log}
+	music, err := loadHoldMusic(cfg.HoldMusic)
+	if err != nil {
+		ua.Close()
+		return nil, err
+	}
 	engine := b2bua.New(
-		b2bua.Config{RingTimeout: cfg.RingTimeout, MediaTimeout: cfg.MediaTimeout},
+		b2bua.Config{RingTimeout: cfg.RingTimeout, MediaTimeout: cfg.MediaTimeout, HoldMusic: music},
 		st, guard, media.NewPortPool(cfg.RTPPortMin, cfg.RTPPortMax), client, log)
 
 	s := &Server{
@@ -136,6 +143,25 @@ func resolvePublicIP(configured string) (netip.Addr, error) {
 		return netip.Addr{}, err
 	}
 	return ap.Addr().Unmap(), nil
+}
+
+// loadHoldMusic returns the loop to play on hold: the built-in music, a
+// WAV file, or nil for silence.
+func loadHoldMusic(setting string) (*media.Loop, error) {
+	switch strings.ToLower(setting) {
+	case "off", "none", "silence":
+		return nil, nil
+	case "", "builtin", "default":
+		return media.NewLoop(audio.HoldMusic()), nil
+	}
+	pcm, err := audio.LoadWAV(setting)
+	if err != nil {
+		return nil, fmt.Errorf("SIPBX_HOLD_MUSIC: %w", err)
+	}
+	if len(pcm) < audio.SampleRate {
+		return nil, fmt.Errorf("SIPBX_HOLD_MUSIC: %s is shorter than a second", setting)
+	}
+	return media.NewLoop(pcm), nil
 }
 
 // PublicIP is the address advertised to phones.

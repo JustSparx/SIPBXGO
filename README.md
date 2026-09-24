@@ -20,14 +20,14 @@ container, with one SQLite file for state.
 | Registration with digest auth (UDP + TCP) | ✅ |
 | Extension-to-extension calls, audio relayed through the server (NAT-safe) | ✅ |
 | Multiple phones per extension (all ring, first to answer wins) | ✅ |
-| Hold / resume, DTMF (RFC 2833 and SIP INFO), busy, cancel | ✅ |
+| Hold / resume with hold music (built-in or your own WAV), DTMF, busy, cancel | ✅ |
 | Call history | ✅ |
 | Auto-ban of password guessers and SIP scanners | ✅ |
 | Web UI: live dashboard, extensions, call history, bans | ✅ |
 | CLI for managing extensions and admins | ✅ |
 | Call transfer | planned |
 | Encrypted calls: SIP over TLS + SRTP audio, per-extension "require encryption" | ✅ |
-| Hold music, voicemail, conference rooms | planned |
+| Conference rooms | next |
 | Busy lights on phone buttons (BLF), phone auto-provisioning | planned |
 
 ## Quick start (Docker on a VPS)
@@ -121,6 +121,23 @@ files you mount into the container.
 SIP/RTP, tick **Require encryption** on its page (or
 `sipbxgo ext set 101 -require-tls`).
 
+## Hold music
+
+When a phone puts a call on hold, SIPBXGO answers the hold itself and plays
+music to the other person. The other phone's call is untouched, so this works
+the same with any phone. The built-in music is generated in code, so it is
+royalty-free. To use your own, mount a WAV file and point
+`SIPBX_HOLD_MUSIC` at it, e.g. in `docker-compose.override.yml`:
+
+```yaml
+services:
+  sipbxgo:
+    volumes:
+      - ./hold.wav:/music/hold.wav:ro
+    environment:
+      SIPBX_HOLD_MUSIC: /music/hold.wav
+```
+
 ## Managing extensions
 
 ```
@@ -181,6 +198,7 @@ All settings are environment variables. With Docker, set them in `.env`
 | `SIPBX_TLS_ACME_JSON` | *(empty)* | Traefik `acme.json` to take the certificate from |
 | `SIPBX_TLS_DOMAIN` | `SIPBX_SIP_DOMAIN` | Certificate name to use from `acme.json`; also put in TLS Contact headers |
 | `SIPBX_TLS_CERT` / `SIPBX_TLS_KEY` | *(empty)* | PEM certificate chain and key, instead of `acme.json` |
+| `SIPBX_HOLD_MUSIC` | `builtin` | Played to whoever is put on hold: `builtin` (a generated, royalty-free loop), `off` (silence), or the path of a WAV file inside the container (any rate, mono or stereo, 8/16-bit PCM) |
 | `SIPBX_HTTP_ADDR` | `127.0.0.1:8080` | Web UI listen address (`off` disables it) |
 | `SIPBX_SIP_DOMAIN` | *(empty)* | Server name shown in the web UI's phone setup card (defaults to the public IP) |
 | `TZ` | `UTC` | Time zone for times shown in the UI, e.g. `America/Los_Angeles` |
@@ -225,7 +243,8 @@ internal/security/    auto-ban list, scanner detection
 internal/registrar/   REGISTER handling
 internal/b2bua/       call engine: INVITE/BYE/re-INVITE, forking, call history
 internal/sdp/         SDP parsing and rewriting for the relay
-internal/media/       RTP/RTCP relay with NAT latching and SRTP termination
+internal/media/       RTP/RTCP endpoints (NAT latching, SRTP), call relay, hold music player
+internal/audio/       G.711 codec, generated hold music, WAV loading
 internal/tlscert/     TLS certificate from PEM files or Traefik's acme.json, auto-reload
 internal/pbx/         SIP server wiring
 internal/web/         web UI: handlers, templates, static assets (embedded)

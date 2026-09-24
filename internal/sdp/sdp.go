@@ -31,6 +31,19 @@ type Info struct {
 	Secure bool
 	// Cryptos are the usable SDES keys offered for audio, in preference order.
 	Cryptos []*Crypto
+	// Formats are the audio payload types from the m= line, in preference order.
+	Formats []int
+}
+
+// G711 returns the phone's preferred G.711 payload type (0 = PCMU,
+// 8 = PCMA) for audio the PBX generates itself, defaulting to PCMU.
+func (i *Info) G711() int {
+	for _, pt := range i.Formats {
+		if pt == 0 || pt == 8 {
+			return pt
+		}
+	}
+	return 0
 }
 
 // OnHold reports whether this SDP puts the call on hold, in either the old
@@ -69,6 +82,11 @@ func Parse(body []byte) (*Info, error) {
 				}
 				info.Port, inAudio, found = port, true, true
 				info.Secure = strings.Contains(f[2], "SAVP")
+				for _, v := range f[3:] {
+					if pt, err := strconv.Atoi(v); err == nil {
+						info.Formats = append(info.Formats, pt)
+					}
+				}
 			}
 			continue
 		}
@@ -244,4 +262,61 @@ func connAddr(line string) (netip.Addr, bool) {
 		return netip.Addr{}, false
 	}
 	return addr.Unmap(), true
+}
+
+// AnswerDirection is the direction to answer an offer with: the mirror image
+// of the offer's (sendonly <-> recvonly).
+func AnswerDirection(offer string) string {
+	switch offer {
+	case "sendonly":
+		return "recvonly"
+	case "recvonly":
+		return "sendonly"
+	case "inactive":
+		return "inactive"
+	}
+	return "sendrecv"
+}
+
+// SetDirection returns body with the audio stream's direction attribute set
+// to dir, replacing any session- or media-level direction.
+func SetDirection(body []byte, dir string) []byte {
+	var out strings.Builder
+	inAudio, placed := false, false
+	flush := func() {
+		if inAudio && !placed {
+			out.WriteString("a=" + dir + "\r\n")
+			placed = true
+		}
+	}
+	for _, line := range lines(body) {
+		switch {
+		case line == "a=sendrecv" || line == "a=sendonly" || line == "a=recvonly" || line == "a=inactive":
+			continue
+		case strings.HasPrefix(line, "m="):
+			flush()
+			inAudio = strings.HasPrefix(line, "m=audio ") && !placed
+		}
+		out.WriteString(line + "\r\n")
+	}
+	flush()
+	return []byte(out.String())
+}
+
+// BumpVersion returns body with the o= line's session version incremented,
+// as RFC 3264 requires whenever a party changes its session description.
+func BumpVersion(body []byte) []byte {
+	var out strings.Builder
+	for _, line := range lines(body) {
+		if strings.HasPrefix(line, "o=") {
+			if f := strings.Fields(line); len(f) == 6 {
+				if v, err := strconv.ParseUint(f[2], 10, 64); err == nil {
+					f[2] = strconv.FormatUint(v+1, 10)
+					line = strings.Join(f, " ")
+				}
+			}
+		}
+		out.WriteString(line + "\r\n")
+	}
+	return []byte(out.String())
 }

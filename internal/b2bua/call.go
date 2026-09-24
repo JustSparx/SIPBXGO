@@ -40,7 +40,7 @@ type Call struct {
 	ringing    bool           // 180 sent to caller
 	earlyMedia bool           // 183 with SDP sent to caller
 	reinvite   bool           // re-INVITE in progress (another one gets 491)
-	held       bool           // last media update put the call on hold
+	holdBy     [2]bool        // side has the call on hold (the PBX answered its hold)
 	sdpTo      [2][]byte      // last SDP the PBX sent to each side
 	secure     [2]bool        // side uses SRTP
 	keys       [2]*sdp.Crypto // PBX's SRTP key for each side
@@ -74,7 +74,7 @@ func (c *Call) target(side int) sip.Uri {
 func (c *Call) OnHold() bool {
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	return c.held
+	return c.holdBy[0] || c.holdBy[1]
 }
 
 // Packets returns how many media packets each phone has sent (RTP+RTCP).
@@ -83,9 +83,10 @@ func (c *Call) Packets() (caller, callee uint64) {
 }
 
 type forkResult struct {
-	dc  *sipgo.DialogClientSession
-	reg *store.Registration
-	err error
+	dc    *sipgo.DialogClientSession
+	reg   *store.Registration
+	offer []byte // SDP sent to this phone
+	err   error
 }
 
 // setup rings every registered phone of the callee, relays ringing to the
@@ -134,7 +135,7 @@ func (c *Call) setup(offer []byte, regs []*store.Registration) {
 			err := dc.WaitAnswer(ringCtx, sipgo.AnswerOptions{
 				OnResponse: func(r *sip.Response) error { c.onProvisional(r, offerFor(reg)); return nil },
 			})
-			results <- forkResult{dc: dc, reg: reg, err: err}
+			results <- forkResult{dc: dc, reg: reg, offer: offerB, err: err}
 		}()
 	}
 	if forks == 0 {
@@ -178,6 +179,7 @@ func (c *Call) setup(offer []byte, regs []*store.Registration) {
 		return
 	}
 
+	c.sdpTo[media.Callee] = winner.offer
 	c.connect(winner.dc, offerFor(winner.reg))
 }
 
@@ -420,6 +422,13 @@ func (c *Call) forward(req *sip.Request, tx sip.ServerTransaction, from int) {
 			tx.Respond(sip.NewResponseFromRequest(req, 488, "Not Acceptable Here", nil))
 			return
 		}
+		c.mu.Lock()
+		wasHolding := c.holdBy[from]
+		c.mu.Unlock()
+		if isInvite && (info.OnHold() || wasHolding) {
+			c.handleHold(req, tx, from, info, answerKey)
+			return
+		}
 		offered = c.offerKey(to)
 		if body, err = sdp.Rewrite(body, c.e.publicIP, c.relay.Legs[to].Port, offered); err != nil {
 			tx.Respond(sip.NewResponseFromRequest(req, 488, "Not Acceptable Here", nil))
@@ -473,13 +482,46 @@ func (c *Call) forward(req *sip.Request, tx sip.ServerTransaction, from int) {
 		}
 	}
 	if isInvite && res.IsSuccess() && len(resBody) > 0 {
-		held := holdState(req.Body())
-		c.mu.Lock()
-		c.held = held
-		c.mu.Unlock()
-		c.log.Info("call media updated", "by", sideName(from), "hold", held)
+		c.log.Info("call media updated", "by", sideName(from))
 	}
 	c.respond(req, tx, res.StatusCode, res.Reason, resBody)
+}
+
+// handleHold answers a hold or resume re-INVITE at the PBX instead of
+// passing it to the other phone. The other phone's session never changes;
+// while on hold it hears music from the relay rather than silence, which
+// works the same whatever phone it is.
+func (c *Call) handleHold(req *sip.Request, tx sip.ServerTransaction, from int, info *sdp.Info, answerKey *sdp.Crypto) {
+	holding := info.OnHold()
+	answer, err := sdp.Rewrite(c.sdpTo[from], c.e.publicIP, c.relay.Legs[from].Port, answerKey)
+	if err != nil {
+		tx.Respond(sip.NewResponseFromRequest(req, 488, "Not Acceptable Here", nil))
+		return
+	}
+	dir := sdp.AnswerDirection(info.Direction)
+	if info.Addr.IsUnspecified() {
+		dir = "inactive" // old-style hold: c=0.0.0.0
+	}
+	answer = sdp.BumpVersion(sdp.SetDirection(answer, dir))
+	c.sdpTo[from] = answer
+
+	c.mu.Lock()
+	c.holdBy[from] = holding
+	holders := c.holdBy
+	c.mu.Unlock()
+	switch {
+	case holders[0] || holders[1]:
+		holder := from
+		if !holding {
+			holder = 1 - from // the other phone still has it on hold
+		}
+		c.relay.Resume()
+		c.relay.Hold(holder, c.e.cfg.HoldMusic)
+	default:
+		c.relay.Resume()
+	}
+	c.log.Info("call hold", "by", sideName(from), "hold", holding, "music", c.e.cfg.HoldMusic != nil)
+	c.respond(req, tx, 200, "OK", answer)
 }
 
 // respond answers an in-dialog request, adding SDP and Contact as needed.

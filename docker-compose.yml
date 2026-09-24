@@ -25,6 +25,7 @@ services:
       SIPBX_TLS_ACME_JSON: "${SIPBX_TLS_ACME_JSON:-}"
       SIPBX_TLS_CERT: "${SIPBX_TLS_CERT:-}"
       SIPBX_TLS_KEY: "${SIPBX_TLS_KEY:-}"
+      SIPBX_HOLD_MUSIC: "${SIPBX_HOLD_MUSIC:-builtin}"
       SIPBX_LOG_LEVEL: "${SIPBX_LOG_LEVEL:-info}"
       TZ: "${TZ:-UTC}"
     volumes:

@@ -23,6 +23,7 @@ func isTLS(transport string) bool { return strings.EqualFold(transport, "TLS") }
 // key for decrypting what it sends and returns the PBX key to put in the SDP
 // answer to that phone (nil means plain RTP).
 func (c *Call) acceptOffer(side int, info *sdp.Info) (*sdp.Crypto, error) {
+	c.relay.Legs[side].SetPayloadType(info.G711())
 	if !info.Secure {
 		return nil, c.setCrypto(side, nil, nil)
 	}
@@ -50,6 +51,7 @@ func (c *Call) acceptOffer(side int, info *sdp.Info) (*sdp.Crypto, error) {
 // acceptAnswer handles a phone's SDP answer to an offer the PBX made with
 // the key offered (nil if the offer was plain RTP).
 func (c *Call) acceptAnswer(side int, info *sdp.Info, offered *sdp.Crypto) error {
+	c.relay.Legs[side].SetPayloadType(info.G711())
 	if offered == nil || !info.Secure {
 		// A phone answering plain RTP to an SRTP offer is out of spec, but
 		// plain audio beats no audio.
