@@ -90,6 +90,8 @@ var migrations = []string{
 		expires_at INTEGER NOT NULL,
 		created_at INTEGER NOT NULL
 	);`,
+	`ALTER TABLE extensions ADD COLUMN require_tls INTEGER NOT NULL DEFAULT 0;
+	ALTER TABLE calls ADD COLUMN encryption TEXT NOT NULL DEFAULT '';`,
 }
 
 func (s *Store) migrate(ctx context.Context) error {

@@ -30,7 +30,7 @@
   <h2>Calls in progress</h2>
   {{if .Calls}}
   <div class="table-wrap"><table>
-    <thead><tr><th>Caller</th><th></th><th>Callee</th><th>State</th><th>Audio</th><th class="num">Time</th></tr></thead>
+    <thead><tr><th>Caller</th><th></th><th>Callee</th><th>State</th><th>Audio</th><th>Security</th><th class="num">Time</th></tr></thead>
     <tbody>
     {{range .Calls}}
       <tr>
@@ -39,6 +39,7 @@
         <td><span class="lamp busy"></span><a class="mono ext" href="/extensions/{{.Callee}}">{{.Callee}}</a> <span class="muted">{{.CalleeName}}</span></td>
         <td>{{if .Held}}<span class="badge warn">On hold</span>{{else}}<span class="badge ok">Connected</span>{{end}}</td>
         <td>{{with .Audio}}{{if eq . "both"}}<span class="muted">Both ways</span>{{else if eq . "none"}}<span class="badge warn">No audio yet</span>{{else}}<span class="badge bad" title="Only one phone's audio is reaching the server — usually a NAT or firewall problem on the silent side">{{.}}</span>{{end}}{{end}}</td>
+        <td><span class="badge {{encClass .Encryption}}"{{if eq .Encryption "partial"}} title="One phone is on plain RTP; its side of the call is not encrypted"{{end}}>{{encLabel .Encryption}}</span></td>
         <td class="num mono">{{clock (since .Answered)}}</td>
       </tr>
     {{end}}
@@ -60,7 +61,7 @@
         <td><span class="lamp {{if .InCall}}busy{{else}}on{{end}}"></span><a class="mono ext" href="/extensions/{{.Extension}}">{{.Extension}}</a> <span class="muted">{{.Name}}</span></td>
         <td>{{device .UserAgent}}</td>
         <td class="mono">{{.Source}}</td>
-        <td class="mono">{{.Transport}}</td>
+        <td>{{if isTLS .Transport}}<span class="badge ok" title="Signaling encrypted with TLS">TLS</span>{{else}}<span class="mono">{{.Transport}}</span>{{end}}</td>
         <td title="Registration expires in {{until .ExpiresAt}}">{{ago .UpdatedAt}}</td>
       </tr>
     {{end}}

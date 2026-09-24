@@ -12,6 +12,7 @@ import (
 
 	"github.com/JustSparx/SIPBXGO/internal/security"
 	"github.com/JustSparx/SIPBXGO/internal/store"
+	"github.com/JustSparx/SIPBXGO/internal/tlscert"
 )
 
 // ---- shared view models ----
@@ -23,6 +24,7 @@ type callRow struct {
 	Held               bool
 	CallerPkts         uint64
 	CalleePkts         uint64
+	Encryption         string
 }
 
 // Audio summarizes media flow: "both", "none", or which phone is silent.
@@ -79,6 +81,7 @@ func (s *Server) snapshot(r *http.Request) (*snapshot, error) {
 			Caller: c.Caller, CallerName: sn.names[c.Caller],
 			Callee: c.Callee, CalleeName: sn.names[c.Callee],
 			Answered: c.Answered, Held: c.OnHold(), CallerPkts: a, CalleePkts: b,
+			Encryption: c.Encryption(),
 		})
 		sn.inCall[c.Caller], sn.inCall[c.Callee] = true, true
 	}
@@ -212,6 +215,7 @@ type extData struct {
 	InCall  bool
 	Server  string
 	Port    int
+	TLSPort int
 	Created bool
 	Error   string
 }
@@ -236,7 +240,7 @@ func (s *Server) extData(r *http.Request) (*extData, error) {
 		server = s.pbx.PublicIP().String()
 	}
 	d := &extData{Ext: ext, Phones: regs, Calls: calls, Server: server, Port: s.pbx.SIPPort(),
-		Created: r.URL.Query().Get("ok") == "created"}
+		TLSPort: s.pbx.TLSPort(), Created: r.URL.Query().Get("ok") == "created"}
 	for _, c := range s.pbx.ActiveCalls() {
 		if c.Caller == number || c.Callee == number {
 			d.InCall = true
@@ -275,11 +279,12 @@ func (s *Server) updateExtension(w http.ResponseWriter, r *http.Request) {
 	}
 	ext.Name = strings.TrimSpace(r.FormValue("name"))
 	ext.Enabled = r.FormValue("enabled") == "on"
+	ext.RequireTLS = r.FormValue("require_tls") == "on"
 	if err := s.store.UpdateExtension(r.Context(), ext); err != nil {
 		s.serverError(w, r, err)
 		return
 	}
-	s.log.Info("extension updated", "ext", ext.Number, "enabled", ext.Enabled, "by", adminFrom(r))
+	s.log.Info("extension updated", "ext", ext.Number, "enabled", ext.Enabled, "require_tls", ext.RequireTLS, "by", adminFrom(r))
 	http.Redirect(w, r, "/extensions/"+ext.Number+"?ok=saved", http.StatusSeeOther)
 }
 
@@ -376,6 +381,8 @@ func (s *Server) calls(w http.ResponseWriter, r *http.Request) {
 // ---- security ----
 
 type securityData struct {
+	TLS       *tlscert.Info
+	TLSPort   int
 	Bans      []security.Ban
 	Trusted   []netip.Prefix
 	Threshold int
@@ -387,6 +394,7 @@ func (s *Server) securityPage(w http.ResponseWriter, r *http.Request) {
 	bans := s.pbx.Bans()
 	sort.Slice(bans, func(i, j int) bool { return bans[i].Until.After(bans[j].Until) })
 	s.render(w, r, http.StatusOK, "security", &securityData{
+		TLS: s.pbx.TLSInfo(), TLSPort: s.pbx.TLSPort(),
 		Bans: bans, Trusted: s.cfg.TrustedNets,
 		Threshold: s.cfg.BanThreshold, Window: s.cfg.BanWindow, Duration: s.cfg.BanDuration,
 	})

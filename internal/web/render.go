@@ -56,6 +56,28 @@ var funcs = template.FuncMap{
 	"device": device,
 	"add":    func(a, b int) int { return a + b },
 	"dur":    roundDur,
+	"days":   func(t time.Time) int { return int(time.Until(t).Hours() / 24) },
+	"isTLS":  func(tr string) bool { return strings.EqualFold(tr, "TLS") },
+	"encLabel": func(e string) string {
+		switch e {
+		case "full":
+			return "Encrypted"
+		case "partial":
+			return "Partly encrypted"
+		case "none":
+			return "Not encrypted"
+		}
+		return ""
+	},
+	"encClass": func(e string) string {
+		switch e {
+		case "full":
+			return "ok"
+		case "partial":
+			return "warn"
+		}
+		return "mute"
+	},
 	"statusClass": func(s string) string {
 		switch s {
 		case "answered":

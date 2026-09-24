@@ -1,5 +1,6 @@
-# Site-specific settings live in .env (copy .env.example), so this file
-# never needs local edits and `git pull` stays clean.
+# Site-specific settings live in .env (copy .env.example), and site-specific
+# mounts in docker-compose.override.yml, so this file never needs local
+# edits and `git pull` stays clean.
 services:
   sipbxgo:
     build: .
@@ -18,6 +19,12 @@ services:
       # reachable by a reverse proxy container, not from the internet.
       SIPBX_HTTP_ADDR: "${SIPBX_HTTP_ADDR:-172.17.0.1:8080}"
       SIPBX_TRUSTED_NETS: "${SIPBX_TRUSTED_NETS:-}"
+      # SIP over TLS (encrypted calls). Needs a certificate: see
+      # docker-compose.override.example.yml for sharing Traefik's.
+      SIPBX_TLS_ADDR: ":${SIPBX_TLS_PORT:-5061}"
+      SIPBX_TLS_ACME_JSON: "${SIPBX_TLS_ACME_JSON:-}"
+      SIPBX_TLS_CERT: "${SIPBX_TLS_CERT:-}"
+      SIPBX_TLS_KEY: "${SIPBX_TLS_KEY:-}"
       SIPBX_LOG_LEVEL: "${SIPBX_LOG_LEVEL:-info}"
       TZ: "${TZ:-UTC}"
     volumes:

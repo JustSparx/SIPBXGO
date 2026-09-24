@@ -24,7 +24,7 @@ func testPBX(t *testing.T, banThreshold int) (string, *store.Store) {
 }
 
 // startPBX is testPBX returning the server itself.
-func startPBX(t *testing.T, banThreshold int) (*Server, *store.Store) {
+func startPBX(t *testing.T, banThreshold int, opts ...func(*Server)) (*Server, *store.Store) {
 	t.Helper()
 	st, err := store.Open(filepath.Join(t.TempDir(), "t.db"))
 	if err != nil {
@@ -42,11 +42,15 @@ func startPBX(t *testing.T, banThreshold int) (*Server, *store.Store) {
 		SIPAddr: "127.0.0.1:0", PublicIP: "127.0.0.1", Realm: "sipbxgo", MinExpires: 60, MaxExpires: 300,
 		BanThreshold: banThreshold, BanWindow: time.Minute, BanDuration: time.Minute,
 		RTPPortMin: 31000, RTPPortMax: 31999, RingTimeout: 5 * time.Second, MediaTimeout: time.Minute,
+		TLSAddr: "127.0.0.1:0",
 	}
 	log := slog.New(slog.NewTextHandler(io.Discard, nil))
 	srv, err := New(cfg, st, log)
 	if err != nil {
 		t.Fatal(err)
+	}
+	for _, o := range opts {
+		o(srv)
 	}
 	// Bound synchronously, so the socket is live before any test packet is sent.
 	if err := srv.Listen(); err != nil {

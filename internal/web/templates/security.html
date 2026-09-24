@@ -4,6 +4,26 @@
 </div>
 
 <section class="panel">
+  <h2>Encryption</h2>
+  {{if .TLS}}
+  <dl class="kv">
+    <dt>SIP over TLS</dt>
+    <dd><span class="badge ok">On</span> port <code class="mono">{{.TLSPort}}</code></dd>
+    <dt>Certificate</dt>
+    <dd><span class="mono">{{range $i, $n := .TLS.Names}}{{if $i}}, {{end}}{{$n}}{{end}}</span></dd>
+    <dt>Expires</dt>
+    <dd>{{stamp .TLS.NotAfter}} <span class="{{if lt (days .TLS.NotAfter) 14}}badge bad{{else}}muted{{end}}">in {{days .TLS.NotAfter}} days</span></dd>
+    <dt>Source</dt>
+    <dd class="mono">{{.TLS.Source}}</dd>
+  </dl>
+  <p class="hint">Phones registered over TLS get encrypted audio (SRTP) automatically. Renewed certificates are picked up without a restart.</p>
+  {{else}}
+  <p><span class="badge mute">Off</span> SIP over TLS is not configured, so calls are not encrypted.</p>
+  <p class="hint">Set <code>SIPBX_TLS_ACME_JSON</code> to share Traefik's certificate, or <code>SIPBX_TLS_CERT</code> and <code>SIPBX_TLS_KEY</code> for PEM files. See the README.</p>
+  {{end}}
+</section>
+
+<section class="panel">
   <h2>Banned addresses</h2>
   {{if .Bans}}
   <div class="table-wrap"><table>

@@ -12,10 +12,19 @@
     <dl class="kv">
       <dt>Server / registrar / proxy</dt>
       <dd><code class="mono">{{.Server}}</code> <button type="button" class="btn ghost small" data-copy="{{.Server}}">Copy</button></dd>
+      {{if .TLSPort}}
+      <dt>Transport &amp; port</dt>
+      <dd><span><strong>TLS</strong> on <code class="mono">{{.TLSPort}}</code> <span class="badge ok">encrypted</span></span></dd>
+      <dt>Audio encryption</dt>
+      <dd>SRTP (SDES, AES_CM_128_HMAC_SHA1_80)</dd>
+      <dt>Without TLS</dt>
+      <dd><span>UDP or TCP on <code class="mono">{{.Port}}</code> <span class="hint">{{if $e.RequireTLS}}refused: this extension requires encryption{{else}}unencrypted{{end}}</span></span></dd>
+      {{else}}
       <dt>Port</dt>
       <dd><code class="mono">{{.Port}}</code></dd>
       <dt>Transport</dt>
       <dd>UDP <span class="hint">(TCP if the router mangles SIP)</span></dd>
+      {{end}}
       <dt>Username / auth ID</dt>
       <dd><code class="mono">{{$e.Number}}</code> <button type="button" class="btn ghost small" data-copy="{{$e.Number}}">Copy</button></dd>
       <dt>Password</dt>
@@ -38,6 +47,7 @@
     <form method="post" action="/extensions/{{$e.Number}}" class="stack">
       <label>Name<input name="name" value="{{$e.Name}}" maxlength="40" placeholder="Kitchen"></label>
       <label class="check"><input type="checkbox" name="enabled"{{if $e.Enabled}} checked{{end}}> Enabled <span class="hint">Disabled extensions can't register or be called.</span></label>
+      <label class="check"><input type="checkbox" name="require_tls"{{if $e.RequireTLS}} checked{{end}}{{if not .TLSPort}}{{if not $e.RequireTLS}} disabled{{end}}{{end}}> Require encryption <span class="hint">{{if .TLSPort}}Only TLS registrations and SRTP audio are accepted for this extension.{{else}}Needs SIP over TLS, which is off on this server.{{end}}</span></label>
       <button class="btn primary">Save</button>
     </form>
   </section>
@@ -55,7 +65,7 @@
     <h2>Recent calls</h2>
     {{if .Calls}}
     <div class="table-wrap"><table>
-      <thead><tr><th>When</th><th>From</th><th>To</th><th>Result</th><th class="num">Duration</th></tr></thead>
+      <thead><tr><th>When</th><th>From</th><th>To</th><th>Result</th><th>Security</th><th class="num">Duration</th></tr></thead>
       <tbody>
       {{range .Calls}}
         <tr>
@@ -63,6 +73,7 @@
           <td class="mono">{{.Caller}}</td>
           <td class="mono">{{.Callee}}</td>
           <td><span class="badge {{statusClass .Status}}">{{status .Status}}</span></td>
+          <td>{{if .Encryption}}<span class="badge {{encClass .Encryption}}">{{encLabel .Encryption}}</span>{{end}}</td>
           <td class="num mono">{{if .AnsweredAt.IsZero}}—{{else}}{{clock .Duration}}{{end}}</td>
         </tr>
       {{end}}
@@ -92,7 +103,7 @@
   <li>
     <span class="lamp {{if $.Data.InCall}}busy{{else}}on{{end}}"></span>
     <div>
-      <strong>{{device .UserAgent}}</strong>
+      <strong>{{device .UserAgent}}{{if isTLS .Transport}} <span class="badge ok">TLS</span>{{end}}</strong>
       <span class="mono muted">{{.Source}} · {{.Transport}}</span>
       <span class="muted">Seen {{ago .UpdatedAt}} · renews within {{until .ExpiresAt}}</span>
     </div>

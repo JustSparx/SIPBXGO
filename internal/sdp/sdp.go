@@ -27,6 +27,10 @@ type Info struct {
 	RTCPPort int
 	// Direction is sendrecv, sendonly, recvonly or inactive.
 	Direction string
+	// Secure is true when the audio profile is SRTP (RTP/SAVP or RTP/SAVPF).
+	Secure bool
+	// Cryptos are the usable SDES keys offered for audio, in preference order.
+	Cryptos []*Crypto
 }
 
 // OnHold reports whether this SDP puts the call on hold, in either the old
@@ -64,6 +68,7 @@ func Parse(body []byte) (*Info, error) {
 					return nil, errors.New("sdp: bad audio port")
 				}
 				info.Port, inAudio, found = port, true, true
+				info.Secure = strings.Contains(f[2], "SAVP")
 			}
 			continue
 		}
@@ -77,6 +82,10 @@ func Parse(body []byte) (*Info, error) {
 				sessionAddr = addr
 			} else if inAudio {
 				mediaAddr = addr
+			}
+		case strings.HasPrefix(line, "a=crypto:") && inAudio:
+			if c, err := parseCrypto(strings.TrimPrefix(line, "a=crypto:")); err == nil && c != nil {
+				info.Cryptos = append(info.Cryptos, c)
 			}
 		case strings.HasPrefix(line, "a=rtcp:") && inAudio:
 			f := strings.Fields(strings.TrimPrefix(line, "a=rtcp:"))
@@ -123,8 +132,12 @@ func Parse(body []byte) (*Info, error) {
 //   - The first audio m= line gets port (unless it was 0 = disabled).
 //   - Other media streams (video, etc.) are disabled with port 0; the relay
 //     only carries audio.
-//   - ICE attributes are dropped: the relay is the only candidate.
-func Rewrite(body []byte, ip netip.Addr, port int) ([]byte, error) {
+//   - With crypto set, audio becomes SRTP (RTP/SAVP) keyed with it; with
+//     crypto nil it becomes plain RTP/AVP. The phone's own a=crypto lines
+//     never pass through: each side of the relay has its own keys.
+//   - ICE, DTLS and ZRTP attributes are dropped: the relay is the only
+//     candidate and terminates any encryption itself.
+func Rewrite(body []byte, ip netip.Addr, port int, crypto *Crypto) ([]byte, error) {
 	if _, err := Parse(body); err != nil {
 		return nil, err
 	}
@@ -135,7 +148,17 @@ func Rewrite(body []byte, ip netip.Addr, port int) ([]byte, error) {
 	ipStr := ip.Unmap().String()
 
 	var out strings.Builder
+	write := func(line string) {
+		out.WriteString(line)
+		out.WriteString("\r\n")
+	}
 	inAudio, audioSeen := false, false
+	endAudio := func() {
+		if inAudio && crypto != nil {
+			write("a=" + crypto.String())
+		}
+		inAudio = false
+	}
 	for _, line := range lines(body) {
 		switch {
 		case strings.HasPrefix(line, "o="):
@@ -149,14 +172,15 @@ func Rewrite(body []byte, ip netip.Addr, port int) ([]byte, error) {
 				line = "c=IN " + addrType + " " + ipStr
 			}
 		case strings.HasPrefix(line, "m="):
+			endAudio()
 			f := strings.Fields(line)
-			inAudio = false
-			if len(f) >= 2 {
+			if len(f) >= 3 {
 				if f[0] == "m=audio" && !audioSeen {
 					audioSeen, inAudio = true, true
 					if f[1] != "0" {
 						f[1] = strconv.Itoa(port)
 					}
+					f[2] = audioProto(f[2], crypto != nil)
 				} else {
 					f[1] = "0"
 				}
@@ -168,14 +192,32 @@ func Rewrite(body []byte, ip netip.Addr, port int) ([]byte, error) {
 			}
 			line = "a=rtcp:" + strconv.Itoa(port+1) + " IN " + addrType + " " + ipStr
 		case strings.HasPrefix(line, "a=candidate:"), strings.HasPrefix(line, "a=ice-"),
-			line == "a=end-of-candidates", line == "a=rtcp-mux":
+			line == "a=end-of-candidates", line == "a=rtcp-mux",
+			strings.HasPrefix(line, "a=crypto:"), strings.HasPrefix(line, "a=fingerprint:"),
+			strings.HasPrefix(line, "a=setup:"), strings.HasPrefix(line, "a=zrtp-hash:"):
 			// rtcp-mux is dropped too: the relay keeps RTCP on port+1.
 			continue
 		}
-		out.WriteString(line)
-		out.WriteString("\r\n")
+		write(line)
 	}
+	endAudio()
 	return []byte(out.String()), nil
+}
+
+// audioProto maps a transport profile to plain or SRTP, keeping feedback
+// (AVPF) if the phone asked for it. DTLS profiles become plain SDES/RTP.
+func audioProto(proto string, secure bool) string {
+	feedback := strings.HasSuffix(proto, "AVPF")
+	switch {
+	case secure && feedback:
+		return "RTP/SAVPF"
+	case secure:
+		return "RTP/SAVP"
+	case feedback:
+		return "RTP/AVPF"
+	default:
+		return "RTP/AVP"
+	}
 }
 
 // lines splits on LF, tolerating CRLF and trailing whitespace.

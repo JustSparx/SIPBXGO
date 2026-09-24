@@ -54,6 +54,7 @@ type Engine struct {
 	udpLaddr sip.Addr
 	uaUDP    *sipgo.DialogUA
 	uaTCP    *sipgo.DialogUA
+	uaTLS    *sipgo.DialogUA
 
 	mu    sync.Mutex
 	byA   map[string]*Call // caller-leg dialog ID (PBX is UAS)
@@ -73,12 +74,17 @@ func New(cfg Config, st Store, guard *sipauth.Guard, ports *media.PortPool, clie
 // Bind supplies the addresses known only after the SIP sockets are open:
 // the public IP written into Contact/SDP, and the local UDP listener, which
 // outbound UDP requests must be sent from so they pass back through each
-// phone's NAT mapping.
-func (e *Engine) Bind(publicIP netip.Addr, udpPort, tcpPort int, udpLaddr sip.Addr) {
+// phone's NAT mapping. tlsPort is 0 when TLS is off; tlsHost is the name on
+// the certificate, used in TLS contacts so phones can verify it.
+func (e *Engine) Bind(publicIP netip.Addr, udpPort, tcpPort, tlsPort int, tlsHost string, udpLaddr sip.Addr) {
 	e.publicIP = publicIP.Unmap()
 	e.udpLaddr = udpLaddr
 	contact := func(port int, transport string) sip.ContactHeader {
-		uri := sip.Uri{Scheme: "sip", User: "sipbxgo", Host: e.publicIP.String(), Port: port}
+		host := e.publicIP.String()
+		if transport == "tls" && tlsHost != "" {
+			host = tlsHost
+		}
+		uri := sip.Uri{Scheme: "sip", User: "sipbxgo", Host: host, Port: port}
 		if transport != "" {
 			uri.UriParams = sip.NewParams()
 			uri.UriParams.Add("transport", transport)
@@ -87,10 +93,16 @@ func (e *Engine) Bind(publicIP netip.Addr, udpPort, tcpPort int, udpLaddr sip.Ad
 	}
 	e.uaUDP = &sipgo.DialogUA{Client: e.client, ContactHDR: contact(udpPort, ""), RewriteContact: true}
 	e.uaTCP = &sipgo.DialogUA{Client: e.client, ContactHDR: contact(tcpPort, "tcp"), RewriteContact: true}
+	if tlsPort > 0 {
+		e.uaTLS = &sipgo.DialogUA{Client: e.client, ContactHDR: contact(tlsPort, "tls"), RewriteContact: true}
+	}
 }
 
 func (e *Engine) uaFor(transport string) *sipgo.DialogUA {
-	if strings.EqualFold(transport, "TCP") {
+	switch {
+	case isTLS(transport) && e.uaTLS != nil:
+		return e.uaTLS
+	case strings.EqualFold(transport, "TCP"):
 		return e.uaTCP
 	}
 	return e.uaUDP
@@ -124,6 +136,11 @@ func (e *Engine) HandleInvite(req *sip.Request, tx sip.ServerTransaction) {
 	respond := func(code int, reason string) {
 		tx.Respond(sip.NewResponseFromRequest(req, code, reason, nil))
 	}
+	if caller.RequireTLS && !isTLS(req.Transport()) {
+		e.log.Warn("call refused: extension requires TLS", "caller", caller.Number, "transport", req.Transport())
+		respond(403, "TLS Required")
+		return
+	}
 
 	target := req.Recipient.User
 	callee, err := e.store.GetExtension(ctx, target)
@@ -150,12 +167,27 @@ func (e *Engine) HandleInvite(req *sip.Request, tx sip.ServerTransaction) {
 		respond(488, "Not Acceptable Here")
 		return
 	}
+	if caller.RequireTLS && !offer.Secure {
+		e.log.Warn("call refused: extension requires encrypted audio", "caller", caller.Number)
+		respond(488, "SRTP Required")
+		return
+	}
 
 	regs, err := e.store.ListRegistrations(ctx, callee.Number)
 	if err != nil {
 		e.log.Error("registration lookup", "error", err)
 		respond(500, "Server Error")
 		return
+	}
+	if callee.RequireTLS {
+		// Skip plain registrations left over from before TLS was required.
+		kept := regs[:0]
+		for _, r := range regs {
+			if isTLS(r.Transport) {
+				kept = append(kept, r)
+			}
+		}
+		regs = kept
 	}
 
 	call := &Call{
@@ -194,6 +226,11 @@ func (e *Engine) HandleInvite(req *sip.Request, tx sip.ServerTransaction) {
 		return
 	}
 	call.relay.SetRemote(media.Caller, offer, call.aSignalIP)
+	if _, err := call.acceptOffer(media.Caller, offer); err != nil {
+		call.log.Warn("caller's SRTP offer unusable", "error", err)
+		call.fail(488, "Not Acceptable Here", store.CallFailed, "system")
+		return
+	}
 	call.relay.Start()
 
 	call.log.Info("call started", "phones", len(regs))

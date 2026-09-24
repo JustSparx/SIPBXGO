@@ -16,3 +16,4 @@
 
 # site config for docker compose
 .env
+docker-compose.override.yml

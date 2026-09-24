@@ -4,6 +4,7 @@ package pbx
 
 import (
 	"context"
+	"crypto/tls"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -18,6 +19,7 @@ import (
 	"github.com/JustSparx/SIPBXGO/internal/security"
 	"github.com/JustSparx/SIPBXGO/internal/sipauth"
 	"github.com/JustSparx/SIPBXGO/internal/store"
+	"github.com/JustSparx/SIPBXGO/internal/tlscert"
 	"github.com/emiago/sipgo"
 	"github.com/emiago/sipgo/sip"
 )
@@ -43,6 +45,9 @@ type Server struct {
 
 	udp net.PacketConn
 	tcp net.Listener
+	tls net.Listener // nil when TLS is off
+
+	cert *tlscert.Loader // nil when TLS is off
 }
 
 func New(cfg *config.Config, st *store.Store, log *slog.Logger) (*Server, error) {
@@ -87,6 +92,18 @@ func New(cfg *config.Config, st *store.Store, log *slog.Logger) (*Server, error)
 		guard:     guard,
 		registrar: registrar.New(st, guard, cfg.MinExpires, cfg.MaxExpires, log),
 		engine:    engine,
+	}
+
+	if cfg.TLSEnabled() {
+		if cfg.TLSAcmeJSON != "" {
+			s.cert = tlscert.FromTraefik(cfg.TLSAcmeJSON, cfg.TLSDomain, log)
+		} else {
+			s.cert = tlscert.FromFiles(cfg.TLSCert, cfg.TLSKey, log)
+		}
+		if err := s.cert.Load(); err != nil {
+			ua.Close()
+			return nil, fmt.Errorf("TLS certificate: %w", err)
+		}
 	}
 
 	srv.OnRegister(s.guarded(s.registrar.HandleRegister))
@@ -159,6 +176,27 @@ func (s *Server) handleNotAllowed(req *sip.Request, tx sip.ServerTransaction) {
 	tx.Respond(res)
 }
 
+// UseCertificate enables SIP over TLS with the given certificate source
+// (overriding configuration). Call before Listen.
+func (s *Server) UseCertificate(l *tlscert.Loader) { s.cert = l }
+
+// TLSInfo describes the TLS certificate in use, or nil when TLS is off.
+func (s *Server) TLSInfo() *tlscert.Info {
+	if s.cert == nil {
+		return nil
+	}
+	i := s.cert.Info()
+	return &i
+}
+
+// TLSPort is the SIP over TLS port, or 0 when TLS is off.
+func (s *Server) TLSPort() int {
+	if s.tls == nil {
+		return 0
+	}
+	return s.tls.Addr().(*net.TCPAddr).Port
+}
+
 // Listen binds the UDP and TCP sockets. It is separate from Serve so bind
 // errors (port in use, permission) surface immediately at startup.
 func (s *Server) Listen() error {
@@ -173,10 +211,24 @@ func (s *Server) Listen() error {
 	}
 	s.udp, s.tcp = udp, tcp
 
+	if s.cert != nil {
+		addr := s.cfg.TLSAddr
+		if addr == "" || addr == "off" {
+			addr = ":5061"
+		}
+		ln, err := net.Listen("tcp", addr)
+		if err != nil {
+			udp.Close()
+			tcp.Close()
+			return fmt.Errorf("listen tls %s: %w", addr, err)
+		}
+		s.tls = tls.NewListener(ln, s.cert.TLSConfig())
+	}
+
 	udpAddr := udp.LocalAddr().(*net.UDPAddr)
 	tcpAddr := tcp.Addr().(*net.TCPAddr)
 	laddr := sip.Addr{IP: udpAddr.IP, Port: udpAddr.Port}
-	s.engine.Bind(s.publicIP, udpAddr.Port, tcpAddr.Port, laddr)
+	s.engine.Bind(s.publicIP, udpAddr.Port, tcpAddr.Port, s.TLSPort(), s.cfg.TLSDomain, laddr)
 	return nil
 }
 
@@ -204,12 +256,21 @@ func (s *Server) Serve(ctx context.Context) error {
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
 
-	errc := make(chan error, 2)
+	errc := make(chan error, 3)
 	go func() { errc <- s.sip.ServeUDP(s.udp) }()
 	go func() { errc <- s.sip.ServeTCP(s.tcp) }()
 	s.log.Info("SIP listening", "udp", s.udp.LocalAddr(), "tcp", s.tcp.Addr(),
 		"public_ip", s.publicIP, "realm", s.cfg.Realm,
 		"rtp_ports", fmt.Sprintf("%d-%d", s.cfg.RTPPortMin, s.cfg.RTPPortMax))
+	if s.tls != nil {
+		go func() { errc <- s.sip.ServeTLS(s.tls) }()
+		go s.cert.Watch(ctx, time.Minute)
+		info := s.cert.Info()
+		s.log.Info("SIP over TLS listening", "addr", s.tls.Addr(), "certificate", info.Source,
+			"names", info.Names, "expires", info.NotAfter.Format(time.DateOnly))
+	} else {
+		s.log.Info("SIP over TLS off (no certificate configured)")
+	}
 
 	go s.housekeeping(ctx)
 	go s.engine.Monitor(ctx)
@@ -227,6 +288,9 @@ func (s *Server) Serve(ctx context.Context) error {
 	s.engine.HangupAll()
 	s.udp.Close()
 	s.tcp.Close()
+	if s.tls != nil {
+		s.tls.Close()
+	}
 	s.sip.Close()
 	s.ua.Close()
 	return err

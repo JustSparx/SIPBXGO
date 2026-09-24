@@ -8,9 +8,10 @@ or a pop-up location. There are no trunks and no outside line, and none of the
 Asterisk/FreePBX sprawl. It runs as one static binary in a small Docker
 container, with one SQLite file for state.
 
-> **Status: early development (Phase 2).** Phones register and call each
-> other, with audio relayed through the server so NAT is not a problem, and
-> everything is managed from a web UI.
+> **Status: early development (Phase 3).** Phones register and call each
+> other, with audio relayed through the server so NAT is not a problem.
+> Signaling and audio can be encrypted on every phone-to-server hop
+> (TLS + SRTP), and everything is managed from a web UI.
 
 ## Features
 
@@ -25,7 +26,7 @@ container, with one SQLite file for state.
 | Web UI: live dashboard, extensions, call history, bans | ✅ |
 | CLI for managing extensions and admins | ✅ |
 | Call transfer | planned |
-| TLS + SRTP | planned |
+| Encrypted calls: SIP over TLS + SRTP audio, per-extension "require encryption" | ✅ |
 | Hold music, voicemail, conference rooms | planned |
 | Busy lights on phone buttons (BLF), phone auto-provisioning | planned |
 
@@ -52,6 +53,7 @@ Open the firewall for SIP (UDP **and** TCP) and the audio port range:
 
 ```sh
 ufw allow 5060
+ufw allow 5061/tcp        # SIP over TLS
 ufw allow 10000:10999/udp
 ```
 
@@ -88,6 +90,36 @@ on Linux you have to define yourself:
 Sign-in uses admin accounts created with `sipbxgo admin add <name>`.
 Passwords are bcrypt-hashed and sessions last 7 days. After 10 failed sign-ins
 an IP is locked out for 15 minutes. Cross-site form posts are rejected.
+
+## Encrypted calls (TLS + SRTP)
+
+With a certificate configured, SIPBXGO also listens for **SIP over TLS** on
+port 5061. Phones registered over TLS automatically get **SRTP** (encrypted
+audio, SDES with AES-128). Keys are exchanged per phone over its TLS
+connection. The server decrypts and re-encrypts, so a plain phone can still
+call an encrypted one; that call shows as *partly encrypted*.
+
+**Certificate from Traefik** (when Traefik already serves the web UI):
+
+```sh
+cp docker-compose.override.example.yml docker-compose.override.yml
+# adjust the acme.json path inside if needed
+docker compose up -d
+```
+
+The override mounts Traefik's `acme.json` read-only. Traefik keeps that file
+root-only, so the container runs as root, but with every Linux capability
+dropped except file access (`DAC_OVERRIDE`) and privilege escalation blocked.
+Renewals are picked up automatically.
+
+**Certificate from files:** set `SIPBX_TLS_CERT` and `SIPBX_TLS_KEY` to PEM
+files you mount into the container.
+
+**On the phone:** transport **TLS**, port **5061**, server = your domain
+(it must match the certificate), and media encryption **SRTP** (in Linphone:
+*Media encryption: SRTP*). To stop an extension from ever using plain
+SIP/RTP, tick **Require encryption** on its page (or
+`sipbxgo ext set 101 -require-tls`).
 
 ## Managing extensions
 
@@ -145,6 +177,10 @@ All settings are environment variables. With Docker, set them in `.env`
 | `SIPBX_RTP_PORTS` | `10000-10999` | UDP port range for call audio (4 ports per call) |
 | `SIPBX_RING_TIMEOUT` | `60s` | How long a call rings before giving up |
 | `SIPBX_MEDIA_TIMEOUT` | `5m` | Hang up a call when neither phone has sent audio for this long (e.g. one lost power) |
+| `SIPBX_TLS_ADDR` | `:5061` | SIP over TLS listen address (`off` disables). Only active with a certificate. |
+| `SIPBX_TLS_ACME_JSON` | *(empty)* | Traefik `acme.json` to take the certificate from |
+| `SIPBX_TLS_DOMAIN` | `SIPBX_SIP_DOMAIN` | Certificate name to use from `acme.json`; also put in TLS Contact headers |
+| `SIPBX_TLS_CERT` / `SIPBX_TLS_KEY` | *(empty)* | PEM certificate chain and key, instead of `acme.json` |
 | `SIPBX_HTTP_ADDR` | `127.0.0.1:8080` | Web UI listen address (`off` disables it) |
 | `SIPBX_SIP_DOMAIN` | *(empty)* | Server name shown in the web UI's phone setup card (defaults to the public IP) |
 | `TZ` | `UTC` | Time zone for times shown in the UI, e.g. `America/Los_Angeles` |
@@ -164,7 +200,11 @@ All settings are environment variables. With Docker, set them in `.env`
   authenticated, so a phone can't pretend to be another extension.
 - The media relay only accepts audio from the IP of the phone in the call, so
   outsiders can't inject audio into it.
-- Until TLS/SRTP is added (Phase 3), signaling and audio travel unencrypted.
+- Without TLS configured, signaling and audio travel unencrypted. With TLS,
+  phones that use it get encrypted signaling and audio. SRTP keys are
+  exchanged only over TLS, and each phone only ever learns its own key.
+- SRTP packets that fail authentication are dropped and never used to
+  latch a phone's address, so forged packets can't redirect audio.
 
 ## Development
 
@@ -185,7 +225,8 @@ internal/security/    auto-ban list, scanner detection
 internal/registrar/   REGISTER handling
 internal/b2bua/       call engine: INVITE/BYE/re-INVITE, forking, call history
 internal/sdp/         SDP parsing and rewriting for the relay
-internal/media/       RTP/RTCP relay with NAT latching
+internal/media/       RTP/RTCP relay with NAT latching and SRTP termination
+internal/tlscert/     TLS certificate from PEM files or Traefik's acme.json, auto-reload
 internal/pbx/         SIP server wiring
 internal/web/         web UI: handlers, templates, static assets (embedded)
 ```

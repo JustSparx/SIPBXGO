@@ -37,11 +37,13 @@ type Call struct {
 	b         *sipgo.DialogClientSession
 
 	mu         sync.Mutex
-	ringing    bool      // 180 sent to caller
-	earlyMedia bool      // 183 with SDP sent to caller
-	reinvite   bool      // re-INVITE in progress (another one gets 491)
-	held       bool      // last media update put the call on hold
-	sdpTo      [2][]byte // last SDP the PBX sent to each side
+	ringing    bool           // 180 sent to caller
+	earlyMedia bool           // 183 with SDP sent to caller
+	reinvite   bool           // re-INVITE in progress (another one gets 491)
+	held       bool           // last media update put the call on hold
+	sdpTo      [2][]byte      // last SDP the PBX sent to each side
+	secure     [2]bool        // side uses SRTP
+	keys       [2]*sdp.Crypto // PBX's SRTP key for each side
 	endOnce    sync.Once
 }
 
@@ -91,12 +93,20 @@ type forkResult struct {
 // is answered and ACKed, or has failed.
 func (c *Call) setup(offer []byte, regs []*store.Registration) {
 	e := c.e
-	offerB, err := sdp.Rewrite(offer, e.publicIP, c.relay.Legs[media.Callee].Port)
+	// Phones registered over TLS are offered SRTP, others plain RTP. One PBX
+	// key serves every SRTP fork; which one applies is settled on answer.
+	calleeKey, err := sdp.NewCrypto(1, sdp.SuiteAES80)
 	if err != nil {
-		c.fail(488, "Not Acceptable Here", store.CallFailed, "system")
+		c.fail(500, "Server Error", store.CallFailed, "system")
 		return
 	}
-	c.sdpTo[media.Callee] = offerB
+	c.keys[media.Callee] = calleeKey
+	offerFor := func(reg *store.Registration) *sdp.Crypto {
+		if isTLS(reg.Transport) {
+			return calleeKey
+		}
+		return nil
+	}
 
 	ringCtx, stopRinging := context.WithTimeout(c.a.Context(), e.cfg.RingTimeout)
 	defer stopRinging()
@@ -104,6 +114,11 @@ func (c *Call) setup(offer []byte, regs []*store.Registration) {
 	results := make(chan forkResult, len(regs))
 	forks := 0
 	for _, reg := range regs {
+		offerB, err := sdp.Rewrite(offer, e.publicIP, c.relay.Legs[media.Callee].Port, offerFor(reg))
+		if err != nil {
+			c.fail(488, "Not Acceptable Here", store.CallFailed, "system")
+			return
+		}
 		inv, err := c.buildInvite(reg, offerB)
 		if err != nil {
 			c.log.Warn("bad registration contact", "contact", reg.Contact, "error", err)
@@ -117,7 +132,7 @@ func (c *Call) setup(offer []byte, regs []*store.Registration) {
 		forks++
 		go func() {
 			err := dc.WaitAnswer(ringCtx, sipgo.AnswerOptions{
-				OnResponse: func(r *sip.Response) error { c.onProvisional(r); return nil },
+				OnResponse: func(r *sip.Response) error { c.onProvisional(r, offerFor(reg)); return nil },
 			})
 			results <- forkResult{dc: dc, reg: reg, err: err}
 		}()
@@ -163,11 +178,11 @@ func (c *Call) setup(offer []byte, regs []*store.Registration) {
 		return
 	}
 
-	c.connect(winner.dc)
+	c.connect(winner.dc, offerFor(winner.reg))
 }
 
 // connect finishes a call once a callee phone has answered.
-func (c *Call) connect(dc *sipgo.DialogClientSession) {
+func (c *Call) connect(dc *sipgo.DialogClientSession, offered *sdp.Crypto) {
 	e := c.e
 	c.b = dc
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
@@ -185,7 +200,13 @@ func (c *Call) connect(dc *sipgo.DialogClientSession) {
 		return
 	}
 	c.relay.SetRemote(media.Callee, info, responseIP(dc.InviteResponse))
-	answerA, err := sdp.Rewrite(answer, e.publicIP, c.relay.Legs[media.Caller].Port)
+	if err := c.acceptAnswer(media.Callee, info, offered); err != nil {
+		c.log.Warn("callee's SRTP answer unusable", "error", err)
+		dc.Bye(ctx)
+		c.fail(488, "Not Acceptable Here", store.CallFailed, "system")
+		return
+	}
+	answerA, err := sdp.Rewrite(answer, e.publicIP, c.relay.Legs[media.Caller].Port, c.offerKey(media.Caller))
 	if err != nil {
 		dc.Bye(ctx)
 		c.fail(488, "Not Acceptable Here", store.CallFailed, "system")
@@ -194,7 +215,7 @@ func (c *Call) connect(dc *sipgo.DialogClientSession) {
 	c.sdpTo[media.Caller] = answerA
 	c.Answered = time.Now()
 	e.register(c)
-	c.log.Info("call answered", "phone", dc.InviteResponse.Source())
+	c.log.Info("call answered", "phone", dc.InviteResponse.Source(), "encryption", c.Encryption())
 
 	// Blocks until the caller ACKs (HandleAck) or gives up.
 	err = c.a.Respond(200, "OK", answerA,
@@ -221,26 +242,46 @@ func (c *Call) dropLateAnswers(results <-chan forkResult, n int) {
 }
 
 // onProvisional relays ringing (and early media) from callee phones.
-func (c *Call) onProvisional(r *sip.Response) {
+// offered is the SRTP key the PBX offered that phone (nil for plain).
+func (c *Call) onProvisional(r *sip.Response, offered *sdp.Crypto) {
 	if !r.IsProvisional() || r.StatusCode == 100 {
 		return
 	}
 	c.mu.Lock()
-	defer c.mu.Unlock()
-	if r.StatusCode == 183 && len(r.Body()) > 0 && !c.earlyMedia {
-		if info, err := sdp.Parse(r.Body()); err == nil {
-			c.relay.SetRemote(media.Callee, info, responseIP(r))
-			if body, err := sdp.Rewrite(r.Body(), c.e.publicIP, c.relay.Legs[media.Caller].Port); err == nil {
-				c.earlyMedia = true
-				c.a.Respond(183, "Session Progress", body, sip.NewHeader("Content-Type", "application/sdp"))
-				return
-			}
-		}
+	early := r.StatusCode == 183 && len(r.Body()) > 0 && !c.earlyMedia
+	if early {
+		c.earlyMedia = true
 	}
-	if !c.ringing && !c.earlyMedia {
-		c.ringing = true
+	c.mu.Unlock()
+	if early && c.earlyMediaAnswer(r, offered) {
+		return
+	}
+	c.mu.Lock()
+	ring := !c.ringing
+	c.ringing = true
+	c.mu.Unlock()
+	if ring {
 		c.a.Respond(180, "Ringing", nil)
 	}
+}
+
+// earlyMediaAnswer relays a 183 with SDP (ringback or announcements from
+// the callee) so the caller hears it. Reports whether it was sent.
+func (c *Call) earlyMediaAnswer(r *sip.Response, offered *sdp.Crypto) bool {
+	info, err := sdp.Parse(r.Body())
+	if err != nil {
+		return false
+	}
+	c.relay.SetRemote(media.Callee, info, responseIP(r))
+	if err := c.acceptAnswer(media.Callee, info, offered); err != nil {
+		return false
+	}
+	body, err := sdp.Rewrite(r.Body(), c.e.publicIP, c.relay.Legs[media.Caller].Port, c.offerKey(media.Caller))
+	if err != nil {
+		return false
+	}
+	c.a.Respond(183, "Session Progress", body, sip.NewHeader("Content-Type", "application/sdp"))
+	return true
 }
 
 func (c *Call) buildInvite(reg *store.Registration, body []byte) (*sip.Request, error) {
@@ -323,6 +364,9 @@ func (c *Call) record(status, by string) {
 		ID: c.ID, Caller: c.Caller, Callee: c.Callee, Status: status, HangupBy: by,
 		StartedAt: c.Started, AnsweredAt: c.Answered, EndedAt: time.Now(),
 	}
+	if !c.Answered.IsZero() {
+		rec.Encryption = c.Encryption()
+	}
 	if err := c.e.store.SaveCall(context.Background(), rec); err != nil {
 		c.log.Error("save call record", "error", err)
 	}
@@ -362,14 +406,22 @@ func (c *Call) forward(req *sip.Request, tx sip.ServerTransaction, from int) {
 		c.respond(req, tx, 200, "OK", c.sdpTo[from])
 		return
 	}
-	if ctype == "application/sdp" && len(body) > 0 {
+	var answerKey, offered *sdp.Crypto // keys for SDP back to `from` and on to `to`
+	isOffer := ctype == "application/sdp" && len(body) > 0
+	if isOffer {
 		info, err := sdp.Parse(body)
 		if err != nil {
 			tx.Respond(sip.NewResponseFromRequest(req, 488, "Not Acceptable Here", nil))
 			return
 		}
 		c.relay.SetRemote(from, info, sipauth.SourceIP(req))
-		if body, err = sdp.Rewrite(body, c.e.publicIP, c.relay.Legs[to].Port); err != nil {
+		if answerKey, err = c.acceptOffer(from, info); err != nil {
+			c.log.Warn("unusable SRTP in re-offer", "by", sideName(from), "error", err)
+			tx.Respond(sip.NewResponseFromRequest(req, 488, "Not Acceptable Here", nil))
+			return
+		}
+		offered = c.offerKey(to)
+		if body, err = sdp.Rewrite(body, c.e.publicIP, c.relay.Legs[to].Port, offered); err != nil {
 			tx.Respond(sip.NewResponseFromRequest(req, 488, "Not Acceptable Here", nil))
 			return
 		}
@@ -405,11 +457,14 @@ func (c *Call) forward(req *sip.Request, tx sip.ServerTransaction, from int) {
 	}
 
 	resBody := res.Body()
-	if len(resBody) > 0 && contentType(res) == "application/sdp" {
+	if len(resBody) > 0 && contentType(res) == "application/sdp" && isOffer {
 		if info, err := sdp.Parse(resBody); err == nil {
 			c.relay.SetRemote(to, info, responseIP(res))
+			if err := c.acceptAnswer(to, info, offered); err != nil {
+				c.log.Warn("unusable SRTP in re-answer", "by", sideName(to), "error", err)
+			}
 		}
-		if resBody, err = sdp.Rewrite(resBody, c.e.publicIP, c.relay.Legs[from].Port); err != nil {
+		if resBody, err = sdp.Rewrite(resBody, c.e.publicIP, c.relay.Legs[from].Port, answerKey); err != nil {
 			tx.Respond(sip.NewResponseFromRequest(req, 488, "Not Acceptable Here", nil))
 			return
 		}

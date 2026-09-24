@@ -1,0 +1,23 @@
+# Copy to docker-compose.override.yml (gitignored; docker compose loads it
+# automatically) to share Traefik's Let's Encrypt certificate for SIP over
+# TLS. Traefik renews it; SIPBXGO notices and reloads without a restart.
+#
+# Traefik must be routing SIPBX_DOMAIN (the web UI route does that), so its
+# acme.json holds a certificate for that name.
+services:
+  sipbxgo:
+    volumes:
+      # Adjust the host path to your Traefik's acme.json.
+      - /opt/n8n/traefik/acme.json:/traefik/acme.json:ro
+    environment:
+      SIPBX_TLS_ACME_JSON: /traefik/acme.json
+    # Traefik requires acme.json to be readable by root only, so the
+    # container runs as root — but with every capability dropped except
+    # DAC_OVERRIDE (file access regardless of owner: needed to read acme.json
+    # and to keep writing the data volume, which the default unprivileged
+    # user owns) and no way to gain privileges. The only writable path the
+    # container can see is its own data volume; acme.json is mounted read-only.
+    user: "0:0"
+    cap_drop: [ALL]
+    cap_add: [DAC_OVERRIDE]
+    security_opt: ["no-new-privileges:true"]
