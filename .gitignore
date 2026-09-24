@@ -1,0 +1,15 @@
+# build output
+/sipbxgo
+*.exe
+/dist/
+
+# runtime data
+/data/
+*.db
+*.db-shm
+*.db-wal
+
+# local tooling
+.claude/settings.local.json
+.idea/
+.vscode/

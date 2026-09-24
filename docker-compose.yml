@@ -1,0 +1,24 @@
+services:
+  sipbxgo:
+    build: .
+    image: ghcr.io/justsparx/sipbxgo:latest
+    restart: unless-stopped
+    # Host networking: SIP needs the real source address of each phone for
+    # NAT traversal, and media (RTP) will use a wide UDP port range that
+    # Docker's port publishing handles poorly.
+    network_mode: host
+    environment:
+      # REQUIRED for phones outside the VPS: the server's public IP.
+      SIPBX_PUBLIC_IP: "203.0.113.10"
+      # A non-standard port cuts scanner noise dramatically. Set the same
+      # port as the "proxy/registrar port" on each phone.
+      SIPBX_SIP_ADDR: ":5060"
+      SIPBX_REALM: "sipbxgo"
+      SIPBX_LOG_LEVEL: "info"
+      # Never auto-ban these (comma-separated IPs or CIDRs), e.g. your office.
+      # SIPBX_TRUSTED_NETS: "198.51.100.0/24"
+    volumes:
+      - sipbxgo-data:/data
+
+volumes:
+  sipbxgo-data:

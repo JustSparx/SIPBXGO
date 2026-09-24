@@ -1,0 +1,9 @@
+.git
+.github
+.claude
+data
+*.db
+*.db-*
+*.exe
+/sipbxgo
+docker-compose*.yml
