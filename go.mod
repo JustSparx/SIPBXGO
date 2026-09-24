@@ -7,7 +7,7 @@ require (
 	github.com/icholy/digest v1.1.0
 	github.com/pion/rtp v1.10.5
 	github.com/pion/srtp/v3 v3.1.0
-	golang.org/x/crypto v0.45.0
+	golang.org/x/crypto v0.52.0
 	modernc.org/sqlite v1.59.0
 )
 
