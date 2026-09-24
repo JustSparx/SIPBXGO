@@ -5,6 +5,9 @@ go 1.25.1
 require (
 	github.com/emiago/sipgo v1.6.0
 	github.com/icholy/digest v1.1.0
+	github.com/pion/rtp v1.10.5
+	github.com/pion/srtp/v3 v3.1.0
+	golang.org/x/crypto v0.45.0
 	modernc.org/sqlite v1.59.0
 )
 
@@ -19,12 +22,8 @@ require (
 	github.com/pion/logging v0.2.4 // indirect
 	github.com/pion/randutil v0.1.0 // indirect
 	github.com/pion/rtcp v1.2.17 // indirect
-	github.com/pion/rtp v1.10.5 // indirect
-	github.com/pion/srtp/v3 v3.1.0 // indirect
 	github.com/pion/transport/v5 v5.0.1 // indirect
 	github.com/remyoudompheng/bigfft v0.0.0-20230129092748-24d4a6f8daec // indirect
-	github.com/stretchr/testify v1.12.1 // indirect
-	golang.org/x/crypto v0.45.0 // indirect
 	golang.org/x/sync v0.22.0 // indirect
 	golang.org/x/sys v0.47.0 // indirect
 	modernc.org/libc v1.75.7 // indirect

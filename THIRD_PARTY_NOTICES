@@ -64,7 +64,7 @@ rights granted to you under this License for this implementation of Go
 shall terminate as of the date such litigation is filed.
 
 ==============================================================================
-github.com/dustin/go-humanize v1.0.1
+github.com/dustin/go-humanize
 ==============================================================================
 -- LICENSE --
 
@@ -91,7 +91,7 @@ SOFTWARE.
 <http://www.opensource.org/licenses/mit-license.php>
 
 ==============================================================================
-github.com/emiago/sipgo v1.6.0
+github.com/emiago/sipgo
 ==============================================================================
 -- LICENSE --
 
@@ -122,7 +122,7 @@ OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 ==============================================================================
-github.com/gobwas/httphead v0.1.0
+github.com/gobwas/httphead
 ==============================================================================
 -- LICENSE --
 
@@ -149,7 +149,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 
 ==============================================================================
-github.com/gobwas/pool v0.2.1
+github.com/gobwas/pool
 ==============================================================================
 -- LICENSE --
 
@@ -176,7 +176,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 
 ==============================================================================
-github.com/gobwas/ws v1.3.2
+github.com/gobwas/ws
 ==============================================================================
 -- LICENSE --
 
@@ -203,7 +203,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 
 ==============================================================================
-github.com/google/uuid v1.6.0
+github.com/google/uuid
 ==============================================================================
 -- LICENSE --
 
@@ -236,7 +236,7 @@ THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
 OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 ==============================================================================
-github.com/icholy/digest v1.1.0
+github.com/icholy/digest
 ==============================================================================
 -- LICENSE --
 
@@ -263,7 +263,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 
 ==============================================================================
-github.com/mattn/go-isatty v0.0.24
+github.com/mattn/go-isatty
 ==============================================================================
 -- LICENSE --
 
@@ -278,7 +278,7 @@ The above copyright notice and this permission notice shall be included in all c
 THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 
 ==============================================================================
-github.com/ncruces/go-strftime v1.0.0
+github.com/ncruces/go-strftime
 ==============================================================================
 -- LICENSE --
 
@@ -305,7 +305,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 
 ==============================================================================
-github.com/pion/logging v0.2.4
+github.com/pion/logging
 ==============================================================================
 -- LICENSE --
 
@@ -332,7 +332,7 @@ The above copyright notice and this permission notice shall be included in all c
 THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 
 ==============================================================================
-github.com/pion/randutil v0.1.0
+github.com/pion/randutil
 ==============================================================================
 -- LICENSE --
 
@@ -359,7 +359,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 
 ==============================================================================
-github.com/pion/rtcp v1.2.17
+github.com/pion/rtcp
 ==============================================================================
 -- LICENSE --
 
@@ -510,7 +510,7 @@ The above copyright notice and this permission notice shall be included in all c
 THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 
 ==============================================================================
-github.com/pion/rtp v1.10.5
+github.com/pion/rtp
 ==============================================================================
 -- LICENSE --
 
@@ -537,7 +537,7 @@ The above copyright notice and this permission notice shall be included in all c
 THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 
 ==============================================================================
-github.com/pion/srtp/v3 v3.1.0
+github.com/pion/srtp/v3
 ==============================================================================
 -- LICENSE --
 
@@ -564,7 +564,7 @@ The above copyright notice and this permission notice shall be included in all c
 THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 
 ==============================================================================
-github.com/pion/transport/v5 v5.0.1
+github.com/pion/transport/v5
 ==============================================================================
 -- LICENSE --
 
@@ -605,7 +605,7 @@ The above copyright notice and this permission notice shall be included in all c
 THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 
 ==============================================================================
-github.com/remyoudompheng/bigfft v0.0.0-20230129092748-24d4a6f8daec
+github.com/remyoudompheng/bigfft
 ==============================================================================
 -- LICENSE --
 
@@ -638,7 +638,7 @@ THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
 OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 ==============================================================================
-golang.org/x/crypto v0.45.0
+golang.org/x/crypto
 ==============================================================================
 -- LICENSE --
 
@@ -696,7 +696,7 @@ rights granted to you under this License for this implementation of Go
 shall terminate as of the date such litigation is filed.
 
 ==============================================================================
-golang.org/x/sync v0.22.0
+golang.org/x/sync
 ==============================================================================
 -- LICENSE --
 
@@ -754,7 +754,7 @@ rights granted to you under this License for this implementation of Go
 shall terminate as of the date such litigation is filed.
 
 ==============================================================================
-golang.org/x/sys v0.47.0
+golang.org/x/sys
 ==============================================================================
 -- LICENSE --
 
@@ -812,7 +812,7 @@ rights granted to you under this License for this implementation of Go
 shall terminate as of the date such litigation is filed.
 
 ==============================================================================
-modernc.org/libc v1.75.7
+modernc.org/libc
 ==============================================================================
 -- AUTHORS --
 
@@ -1180,7 +1180,7 @@ OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION
 WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 
 ==============================================================================
-modernc.org/mathutil v1.7.1
+modernc.org/mathutil
 ==============================================================================
 -- AUTHORS --
 
@@ -1229,7 +1229,7 @@ THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
 OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 ==============================================================================
-modernc.org/memory v1.12.1
+modernc.org/memory
 ==============================================================================
 -- AUTHORS --
 
@@ -1341,7 +1341,7 @@ ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
 SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 ==============================================================================
-modernc.org/sqlite v1.59.0
+modernc.org/sqlite
 ==============================================================================
 -- AUTHORS --
 
