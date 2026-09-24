@@ -14,6 +14,7 @@ import (
 	"github.com/JustSparx/SIPBXGO/internal/store"
 	"github.com/emiago/sipgo"
 	"github.com/emiago/sipgo/sip"
+	"github.com/pion/rtp"
 )
 
 // callPhone is a minimal SIP phone for end-to-end call tests: it registers,
@@ -277,26 +278,31 @@ func TestCallAnswerMediaHoldHangup(t *testing.T) {
 		t.Fatalf("active calls = %d, want 1", n)
 	}
 
-	// Hold: caller re-INVITEs with sendonly; the callee must see it.
-	reinv := sip.NewRequest(sip.INVITE, dc.InviteResponse.Contact().Address)
-	reinv.SetBody(a.offer("a=sendonly\r\n"))
-	reinv.AppendHeader(sip.NewHeader("Content-Type", "application/sdp"))
-	res, err := dc.Do(ctx, reinv)
-	if err != nil || res.StatusCode != 200 {
-		t.Fatalf("hold re-INVITE: %v %v", res, err)
-	}
-	ack := sip.NewRequest(sip.ACK, dc.InviteResponse.Contact().Address)
-	ack.AppendHeader(&sip.CSeqHeader{SeqNo: res.CSeq().SeqNo, MethodName: sip.ACK})
-	dc.WriteRequest(ack)
-	got := wait(t, b.reinvites, "hold re-INVITE at callee")
-	if !strings.Contains(string(got.Body()), "a=sendonly") {
-		t.Errorf("hold direction not passed through:\n%s", got.Body())
-	}
-	if relayPort(t, got.Body()) != portB {
-		t.Error("relay port changed on re-INVITE")
-	}
+	// Hold: the PBX answers the caller's re-INVITE itself and plays music
+	// to the callee, whose session is left alone.
+	res := reinvite(t, ctx, dc, a.offer("a=sendonly\r\n"))
 	if !strings.Contains(string(res.Body()), "a=recvonly") || relayPort(t, res.Body()) != portA {
 		t.Errorf("bad hold answer to caller:\n%s", res.Body())
+	}
+	expectMusic(t, b)
+	select {
+	case r := <-b.reinvites:
+		t.Fatalf("hold was passed on to the callee:\n%s", r.Body())
+	default:
+	}
+	if calls := srv.Engine().ActiveCalls(); len(calls) != 1 || !calls[0].OnHold() {
+		t.Fatal("call not reported on hold")
+	}
+
+	// Resume: music stops and audio flows again.
+	res = reinvite(t, ctx, dc, a.offer("a=sendrecv\r\n"))
+	if !strings.Contains(string(res.Body()), "a=sendrecv") {
+		t.Errorf("bad resume answer:\n%s", res.Body())
+	}
+	drainRTP(b)
+	a.sendRTP(portA, "back again")
+	if got := b.recvRTP(); got != "back again" {
+		t.Fatalf("after resume callee got %q", got)
 	}
 
 	// Caller hangs up; callee gets BYE.
@@ -443,7 +449,6 @@ func TestCalleePutsCallOnHold(t *testing.T) {
 		t.Fatal(err)
 	}
 	ds := wait(t, b.answered, "callee answered")
-	portA := relayPort(t, dc.InviteResponse.Body())
 
 	reinv := sip.NewRequest(sip.INVITE, ds.InviteRequest.Contact().Address)
 	reinv.SetBody(b.offer("a=inactive\r\n"))
@@ -452,10 +457,56 @@ func TestCalleePutsCallOnHold(t *testing.T) {
 	if err != nil || res.StatusCode != 200 {
 		t.Fatalf("callee hold re-INVITE: %v %v", res, err)
 	}
-	got := wait(t, a.reinvites, "hold re-INVITE at caller")
-	if !strings.Contains(string(got.Body()), "a=inactive") || relayPort(t, got.Body()) != portA {
-		t.Errorf("caller got bad hold SDP:\n%s", got.Body())
+	if !strings.Contains(string(res.Body()), "a=inactive") {
+		t.Errorf("callee got bad hold answer:\n%s", res.Body())
 	}
+	expectMusic(t, a) // the caller is the one waiting now
 	dc.Bye(ctx)
 	wait(t, b.byes, "BYE at callee")
+}
+
+// reinvite sends an in-dialog INVITE with body and ACKs the 200.
+func reinvite(t *testing.T, ctx context.Context, dc *sipgo.DialogClientSession, body []byte) *sip.Response {
+	t.Helper()
+	req := sip.NewRequest(sip.INVITE, dc.InviteResponse.Contact().Address)
+	req.SetBody(body)
+	req.AppendHeader(sip.NewHeader("Content-Type", "application/sdp"))
+	res, err := dc.Do(ctx, req)
+	if err != nil || res.StatusCode != 200 {
+		t.Fatalf("re-INVITE: %v %v", res, err)
+	}
+	ack := sip.NewRequest(sip.ACK, dc.InviteResponse.Contact().Address)
+	ack.AppendHeader(&sip.CSeqHeader{SeqNo: res.CSeq().SeqNo, MethodName: sip.ACK})
+	dc.WriteRequest(ack)
+	return res
+}
+
+// expectMusic checks that the phone is receiving hold music: a steady
+// stream of 20 ms G.711 packets.
+func expectMusic(t *testing.T, p *callPhone) {
+	t.Helper()
+	for i := 0; i < 5; i++ {
+		raw := p.recvRTP()
+		if raw == "" {
+			t.Fatalf("%s: no hold music", p.ext)
+		}
+		var pkt rtp.Packet
+		if err := pkt.Unmarshal([]byte(raw)); err != nil {
+			t.Fatalf("%s: hold music is not RTP: %v", p.ext, err)
+		}
+		if pkt.PayloadType != 0 || len(pkt.Payload) != 160 {
+			t.Fatalf("%s: unexpected hold music packet: pt=%d len=%d", p.ext, pkt.PayloadType, len(pkt.Payload))
+		}
+	}
+}
+
+// drainRTP discards packets already queued (e.g. the tail of hold music).
+func drainRTP(p *callPhone) {
+	buf := make([]byte, 2048)
+	for {
+		p.rtp.SetReadDeadline(time.Now().Add(60 * time.Millisecond))
+		if _, _, err := p.rtp.ReadFromUDP(buf); err != nil {
+			return
+		}
+	}
 }

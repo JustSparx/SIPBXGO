@@ -39,6 +39,8 @@ type Store interface {
 type Config struct {
 	RingTimeout  time.Duration
 	MediaTimeout time.Duration
+	// HoldMusic plays to a caller put on hold; nil means silence.
+	HoldMusic *media.Loop
 }
 
 type Engine struct {

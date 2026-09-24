@@ -60,6 +60,10 @@ type Config struct {
 	TLSAcmeJSON string
 	TLSDomain   string
 
+	// HoldMusic is "builtin" (the default synthesized loop), "off" (silence),
+	// or the path of a WAV file to play to callers on hold.
+	HoldMusic string
+
 	// HTTPAddr is where the web UI listens ("off" disables it). The default
 	// is loopback-only; put it behind a TLS reverse proxy to reach it remotely.
 	HTTPAddr string
@@ -81,6 +85,7 @@ func Load() (*Config, error) {
 		HTTPAddr:  env("SIPBX_HTTP_ADDR", "127.0.0.1:8080"),
 		SIPDomain: env("SIPBX_SIP_DOMAIN", ""),
 
+		HoldMusic:   env("SIPBX_HOLD_MUSIC", "builtin"),
 		TLSAddr:     env("SIPBX_TLS_ADDR", ":5061"),
 		TLSCert:     env("SIPBX_TLS_CERT", ""),
 		TLSKey:      env("SIPBX_TLS_KEY", ""),

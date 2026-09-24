@@ -191,6 +191,24 @@ func TestEncryptedCallOverTLS(t *testing.T) {
 	if calls := srv.ActiveCalls(); len(calls) != 1 || calls[0].Encryption() != store.EncryptionFull {
 		t.Fatalf("active call encryption wrong")
 	}
+
+	// Hold: the music reaching the callee is encrypted with its key too.
+	res := reinvite(t, ctx, dc, a.offer("a=sendonly\r\n"))
+	if k := pbxKey(t, res.Body()); !k.Equal(keyForA) {
+		t.Error("PBX changed its SRTP key on hold")
+	}
+	for i := 0; i < 3; i++ {
+		raw := b.recvRTP()
+		dec, err := srtpCtx(t, keyForB).DecryptRTP(nil, []byte(raw), nil)
+		if err != nil {
+			t.Fatalf("hold music to an SRTP phone isn't SRTP: %v", err)
+		}
+		var pkt rtp.Packet
+		if pkt.Unmarshal(dec) != nil || len(pkt.Payload) != 160 {
+			t.Fatal("hold music packet malformed")
+		}
+	}
+
 	dc.Bye(ctx)
 	wait(t, b.byes, "BYE at callee over TLS")
 	if rec := lastCall(t, st); rec.Encryption != store.EncryptionFull {
