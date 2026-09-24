@@ -44,7 +44,7 @@ jobs:
         with:
           context: .
           push: ${{ github.event_name == 'push' }}
-          build-args: VERSION=${{ github.sha }}
+          build-args: VERSION=1.0.0+${{ github.sha }}
           tags: |
             ghcr.io/justsparx/sipbxgo:latest
             ghcr.io/justsparx/sipbxgo:${{ github.sha }}
