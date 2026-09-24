@@ -18,6 +18,8 @@ jobs:
           go-version-file: go.mod
       - name: gofmt
         run: test -z "$(gofmt -l .)" || (gofmt -l . && exit 1)
+      - name: go.mod tidy
+        run: go mod tidy -diff
       - name: vet
         run: go vet ./...
       - name: third-party notices up to date
