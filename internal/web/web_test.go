@@ -348,7 +348,7 @@ func TestEncryptionUI(t *testing.T) {
 	expect(t, res, body, http.StatusOK, "SIP over TLS is not configured")
 
 	// TLS on.
-	h.pbx.tls = &tlscert.Info{Source: "Traefik /traefik/acme.json", Names: []string{"pbx.example.com"}, NotAfter: time.Now().Add(60 * 24 * time.Hour)}
+	h.pbx.tls = &tlscert.Info{Source: "Traefik /traefik/acme.json", Names: []string{"pbx.example.com"}, NotAfter: time.Now().Add(60*24*time.Hour - time.Hour)}
 	res, body = h.do("GET", "/extensions/101", nil)
 	expect(t, res, body, http.StatusOK, "5061", "SRTP (SDES", "Only TLS registrations")
 	res, body = h.do("GET", "/security", nil)
