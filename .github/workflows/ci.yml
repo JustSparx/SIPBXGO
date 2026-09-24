@@ -20,6 +20,13 @@ jobs:
         run: test -z "$(gofmt -l .)" || (gofmt -l . && exit 1)
       - name: vet
         run: go vet ./...
+      - name: third-party notices up to date
+        run: |
+          go run ./tools/notices > /tmp/THIRD_PARTY_NOTICES
+          diff -u THIRD_PARTY_NOTICES /tmp/THIRD_PARTY_NOTICES || {
+            echo "::error::THIRD_PARTY_NOTICES is stale: run 'go run ./tools/notices > THIRD_PARTY_NOTICES'"
+            exit 1
+          }
       - name: test
         run: go test -race -count=1 ./...
 
