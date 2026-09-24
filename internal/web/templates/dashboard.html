@@ -50,6 +50,20 @@
   {{end}}
 </section>
 
+{{with .Rooms}}
+<section class="panel">
+  <h2>Conference rooms in use</h2>
+  {{range .}}
+  <div class="room-live">
+    <strong><a class="mono ext" href="/conferences">{{.Number}}</a>{{with index $.Data.RoomNames .Number}} · {{.}}{{end}}</strong>
+    <ul class="chips">
+      {{range .Members}}<li><span><span class="lamp {{if .Admitted}}busy{{else}}off{{end}}"></span><span class="mono">{{.Ext}}</span>{{with .Name}} {{.}}{{end}} <span class="muted">{{if .Admitted}}{{clock (since .Joined)}}{{else}}entering PIN{{end}}</span></span></li>{{end}}
+    </ul>
+  </div>
+  {{end}}
+</section>
+{{end}}
+
 <section class="panel">
   <h2>Registered phones</h2>
   {{if .Phones}}

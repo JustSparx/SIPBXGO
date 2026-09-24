@@ -540,6 +540,10 @@ func (c *Call) respond(req *sip.Request, tx sip.ServerTransaction, code int, rea
 func (e *Engine) handleInDialog(req *sip.Request, tx sip.ServerTransaction) {
 	c, side := e.lookup(req)
 	if c == nil {
+		if l := e.lookupConf(req); l != nil {
+			e.confInDialog(l, req, tx)
+			return
+		}
 		tx.Respond(sip.NewResponseFromRequest(req, 481, "Call/Transaction Does Not Exist", nil))
 		return
 	}

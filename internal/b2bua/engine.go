@@ -18,6 +18,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/JustSparx/SIPBXGO/internal/conference"
 	"github.com/JustSparx/SIPBXGO/internal/media"
 	"github.com/JustSparx/SIPBXGO/internal/sdp"
 	"github.com/JustSparx/SIPBXGO/internal/sipauth"
@@ -32,6 +33,7 @@ const AllowMethods = "INVITE, ACK, CANCEL, BYE, OPTIONS, INFO, UPDATE"
 // Store is the persistence the engine needs.
 type Store interface {
 	GetExtension(ctx context.Context, number string) (*store.Extension, error)
+	GetRoom(ctx context.Context, number string) (*store.Room, error)
 	ListRegistrations(ctx context.Context, ext string) ([]*store.Registration, error)
 	SaveCall(ctx context.Context, c *store.CallRecord) error
 }
@@ -41,6 +43,8 @@ type Config struct {
 	MediaTimeout time.Duration
 	// HoldMusic plays to a caller put on hold; nil means silence.
 	HoldMusic *media.Loop
+	// RoomMusic (8 kHz PCM) plays to someone alone in a conference room.
+	RoomMusic []int16
 }
 
 type Engine struct {
@@ -58,18 +62,25 @@ type Engine struct {
 	uaTCP    *sipgo.DialogUA
 	uaTLS    *sipgo.DialogUA
 
-	mu    sync.Mutex
-	byA   map[string]*Call // caller-leg dialog ID (PBX is UAS)
-	byB   map[string]*Call // callee-leg dialog ID (PBX is UAC)
-	calls map[string]*Call // active calls by Call.ID
+	mu      sync.Mutex
+	byA     map[string]*Call    // caller-leg dialog ID (PBX is UAS)
+	byB     map[string]*Call    // callee-leg dialog ID (PBX is UAC)
+	calls   map[string]*Call    // active calls by Call.ID
+	confByA map[string]*confLeg // conference calls by dialog ID
+
+	conf *conference.Manager
 }
 
 func New(cfg Config, st Store, guard *sipauth.Guard, ports *media.PortPool, client *sipgo.Client, log *slog.Logger) *Engine {
 	return &Engine{
 		cfg: cfg, store: st, guard: guard, ports: ports, client: client, log: log,
-		byA:   make(map[string]*Call),
-		byB:   make(map[string]*Call),
-		calls: make(map[string]*Call),
+		byA:     make(map[string]*Call),
+		byB:     make(map[string]*Call),
+		calls:   make(map[string]*Call),
+		confByA: make(map[string]*confLeg),
+		conf: conference.New(conference.Config{
+			Ports: ports, Music: cfg.RoomMusic, MediaTimeout: cfg.MediaTimeout, Log: log,
+		}),
 	}
 }
 
@@ -148,6 +159,11 @@ func (e *Engine) HandleInvite(req *sip.Request, tx sip.ServerTransaction) {
 	callee, err := e.store.GetExtension(ctx, target)
 	switch {
 	case errors.Is(err, store.ErrNotFound):
+		room, rerr := e.store.GetRoom(ctx, target)
+		if rerr == nil {
+			e.joinConference(req, tx, caller, room)
+			return
+		}
 		respond(404, "Not Found")
 		return
 	case err != nil:
@@ -282,6 +298,10 @@ func (e *Engine) lookup(req *sip.Request) (*Call, int) {
 func (e *Engine) HandleAck(req *sip.Request, tx sip.ServerTransaction) {
 	if c, side := e.lookup(req); c != nil && side == media.Caller {
 		c.a.ReadAck(req, tx)
+		return
+	}
+	if l := e.lookupConf(req); l != nil {
+		l.ds.ReadAck(req, tx)
 	}
 }
 
@@ -289,6 +309,13 @@ func (e *Engine) HandleAck(req *sip.Request, tx sip.ServerTransaction) {
 func (e *Engine) HandleBye(req *sip.Request, tx sip.ServerTransaction) {
 	c, side := e.lookup(req)
 	if c == nil {
+		if l := e.lookupConf(req); l != nil {
+			if err := l.ds.ReadBye(req, tx); err != nil {
+				l.log.Debug("read bye", "error", err)
+			}
+			e.endConference(l, "caller", "", false)
+			return
+		}
 		tx.Respond(sip.NewResponseFromRequest(req, 481, "Call/Transaction Does Not Exist", nil))
 		return
 	}
@@ -346,12 +373,22 @@ func (e *Engine) Monitor(ctx context.Context) {
 	}
 }
 
-// HangupAll ends every active call (used at shutdown).
+// HangupAll ends every active call and conference call (used at shutdown).
 func (e *Engine) HangupAll() {
 	var wg sync.WaitGroup
 	for _, c := range e.ActiveCalls() {
 		wg.Add(1)
 		go func() { defer wg.Done(); c.hangup("system") }()
+	}
+	e.mu.Lock()
+	legs := make([]*confLeg, 0, len(e.confByA))
+	for _, l := range e.confByA {
+		legs = append(legs, l)
+	}
+	e.mu.Unlock()
+	for _, l := range legs {
+		wg.Add(1)
+		go func() { defer wg.Done(); e.endConference(l, "system", "shutdown", true) }()
 	}
 	wg.Wait()
 }

@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"github.com/JustSparx/SIPBXGO/internal/b2bua"
+	"github.com/JustSparx/SIPBXGO/internal/conference"
 	"github.com/JustSparx/SIPBXGO/internal/config"
 	"github.com/JustSparx/SIPBXGO/internal/security"
 	"github.com/JustSparx/SIPBXGO/internal/store"
@@ -25,6 +26,7 @@ type fakePBX struct {
 	bans     []security.Ban
 	unbanned []netip.Addr
 	tls      *tlscert.Info
+	rooms    []conference.RoomStatus
 }
 
 func (f *fakePBX) ActiveCalls() []*b2bua.Call { return nil }
@@ -33,6 +35,9 @@ func (f *fakePBX) Unban(ip netip.Addr)        { f.unbanned = append(f.unbanned, 
 func (f *fakePBX) PublicIP() netip.Addr       { return netip.MustParseAddr("203.0.113.10") }
 func (f *fakePBX) SIPPort() int               { return 5060 }
 func (f *fakePBX) TLSInfo() *tlscert.Info     { return f.tls }
+func (f *fakePBX) Conferences() []conference.RoomStatus {
+	return f.rooms
+}
 func (f *fakePBX) TLSPort() int {
 	if f.tls == nil {
 		return 0
@@ -363,4 +368,46 @@ func TestEncryptionUI(t *testing.T) {
 		StartedAt: now, AnsweredAt: now, EndedAt: now, Encryption: store.EncryptionPartial})
 	res, body = h.do("GET", "/calls", nil)
 	expect(t, res, body, http.StatusOK, "Partly encrypted")
+}
+
+func TestConferenceRoomsUI(t *testing.T) {
+	h := newHarness(t)
+	h.login()
+	ctx := context.Background()
+	h.st.CreateExtension(ctx, &store.Extension{Number: "101", Name: "Kitchen", Secret: "pw-pw-pw-pw", Enabled: true})
+
+	res, body := h.do("GET", "/conferences", nil)
+	expect(t, res, body, http.StatusOK, "No rooms yet", "No one is in a conference room")
+
+	res, body = h.do("POST", "/conferences", url.Values{"number": {"101"}})
+	expect(t, res, body, http.StatusBadRequest, "already an extension number")
+	res, body = h.do("POST", "/conferences", url.Values{"number": {"800"}, "pin": {"12ab"}})
+	expect(t, res, body, http.StatusBadRequest, "up to 12 digits")
+
+	res, _ = h.do("POST", "/conferences", url.Values{"number": {"800"}, "name": {"Family"}, "pin": {"4321"}})
+	if res.Header.Get("Location") != "/conferences?ok=roomadded" {
+		t.Fatalf("create: %d %q", res.StatusCode, res.Header.Get("Location"))
+	}
+	res, body = h.do("POST", "/extensions", url.Values{"number": {"800"}})
+	expect(t, res, body, http.StatusBadRequest, "already a conference room")
+
+	h.do("POST", "/conferences/800", url.Values{"name": {"Everyone"}, "pin": {""}})
+	if r, _ := h.st.GetRoom(ctx, "800"); r.Name != "Everyone" || r.PIN != "" {
+		t.Fatalf("update: %+v", r)
+	}
+
+	// Live view with someone in the room.
+	h.pbx.rooms = []conference.RoomStatus{{Number: "800", Members: []conference.Member{
+		{Ext: "101", Name: "Kitchen", Joined: time.Now().Add(-65 * time.Second), Admitted: true, Secure: true},
+		{Ext: "102", Joined: time.Now()},
+	}}}
+	res, body = h.do("GET", "/live/conferences", nil)
+	expect(t, res, body, http.StatusOK, "Everyone", "Kitchen", "1:05", "SRTP", "entering PIN")
+	res, body = h.do("GET", "/", nil)
+	expect(t, res, body, http.StatusOK, "Conference rooms in use", "Everyone")
+
+	h.do("POST", "/conferences/800/delete", url.Values{})
+	if _, err := h.st.GetRoom(ctx, "800"); err == nil {
+		t.Fatal("room not deleted")
+	}
 }

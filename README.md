@@ -27,7 +27,7 @@ container, with one SQLite file for state.
 | CLI for managing extensions and admins | ✅ |
 | Call transfer | planned |
 | Encrypted calls: SIP over TLS + SRTP audio, per-extension "require encryption" | ✅ |
-| Conference rooms | next |
+| Conference rooms with optional PIN, join/leave chimes, live view | ✅ |
 | Busy lights on phone buttons (BLF), phone auto-provisioning | planned |
 
 ## Quick start (Docker on a VPS)
@@ -138,6 +138,22 @@ services:
       SIPBX_HOLD_MUSIC: /music/hold.wav
 ```
 
+## Conference rooms
+
+Create a room (web UI → **Conferences**, or `sipbxgo room add 800 -name Family`)
+and any extension can dial its number to join. The server mixes the audio,
+and everyone hears everyone else but not themselves.
+
+- **PIN (optional):** callers hear two short beeps, key the PIN, then `#`.
+  Keypad tones work both in-band (RFC 4733) and by SIP INFO. Three wrong
+  tries and the call ends.
+- **Chimes:** a rising chime when someone joins, a falling one when they leave.
+- **Alone in the room:** you hear the hold music until someone else arrives.
+- **Encryption:** each phone's leg is encrypted exactly as for normal calls.
+- **Codecs:** the room mixes in G.711 (PCMU/PCMA), which every phone supports.
+- **Numbers:** room numbers share the extension number space, so they can't
+  collide.
+
 ## Managing extensions
 
 ```
@@ -150,6 +166,8 @@ sipbxgo reg list                                 registered phones: source IP, t
 sipbxgo call list [-n 20]                        recent calls: who, when, how long, who hung up
 sipbxgo admin add <name> [-password P]           web UI admin (password generated if omitted)
 sipbxgo admin passwd <name> | list | del <name>
+sipbxgo room add <number> [-name N] [-pin P]     conference room
+sipbxgo room set <number> [-name N] [-pin P | -no-pin] | list | del <number>
 ```
 
 Extension numbers are 2–8 digits. The SIP **username is the extension number**.
@@ -237,14 +255,15 @@ Layout:
 ```
 cmd/sipbxgo/          CLI + entry point
 internal/config/      environment configuration
-internal/store/       SQLite: extensions, registrations, calls, admins, sessions
+internal/store/       SQLite: extensions, rooms, registrations, calls, admins, sessions
 internal/sipauth/     digest auth (stateless nonces) + request guard
 internal/security/    auto-ban list, scanner detection
 internal/registrar/   REGISTER handling
 internal/b2bua/       call engine: INVITE/BYE/re-INVITE, forking, call history
 internal/sdp/         SDP parsing and rewriting for the relay
 internal/media/       RTP/RTCP endpoints (NAT latching, SRTP), call relay, hold music player
-internal/audio/       G.711 codec, generated hold music, WAV loading
+internal/audio/       G.711 codec, generated hold music and tones, WAV loading
+internal/conference/  conference mixer: rooms, PIN entry, DTMF, chimes
 internal/tlscert/     TLS certificate from PEM files or Traefik's acme.json, auto-reload
 internal/pbx/         SIP server wiring
 internal/web/         web UI: handlers, templates, static assets (embedded)

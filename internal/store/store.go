@@ -92,6 +92,12 @@ var migrations = []string{
 	);`,
 	`ALTER TABLE extensions ADD COLUMN require_tls INTEGER NOT NULL DEFAULT 0;
 	ALTER TABLE calls ADD COLUMN encryption TEXT NOT NULL DEFAULT '';`,
+	`CREATE TABLE rooms (
+		number     TEXT PRIMARY KEY,
+		name       TEXT NOT NULL DEFAULT '',
+		pin        TEXT NOT NULL DEFAULT '',
+		created_at INTEGER NOT NULL
+	);`,
 }
 
 func (s *Store) migrate(ctx context.Context) error {

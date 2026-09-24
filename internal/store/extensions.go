@@ -43,6 +43,11 @@ func (s *Store) CreateExtension(ctx context.Context, e *Extension) error {
 	if e.Secret == "" {
 		return errors.New("secret is required")
 	}
+	if kind, err := s.numberUsed(ctx, e.Number); err != nil {
+		return err
+	} else if kind == "a conference room" {
+		return fmt.Errorf("%s is already a conference room: %w", e.Number, ErrNumberTaken)
+	}
 	now := time.Now()
 	_, err := s.db.ExecContext(ctx,
 		`INSERT INTO extensions (number, name, secret, enabled, require_tls, created_at, updated_at)

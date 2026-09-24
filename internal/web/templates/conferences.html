@@ -1,0 +1,78 @@
+{{define "content"}}{{with .Data}}
+<div class="page-head">
+  <h1>Conference rooms</h1>
+  <span class="live" title="Updates every few seconds">Live</span>
+</div>
+
+<div class="split">
+  <div>
+    <section class="panel">
+      <h2>In use now</h2>
+      <div data-refresh="/live/conferences" data-interval="3000">{{template "live" $}}</div>
+    </section>
+
+    <section class="panel">
+      <h2>Rooms</h2>
+      {{if .Rooms}}
+      <ul class="rooms">
+        {{range .Rooms}}
+        <li>
+          <details>
+            <summary>
+              <span class="mono ext">{{.Number}}</span>
+              <span>{{with .Name}}{{.}}{{else}}<span class="muted">Unnamed</span>{{end}}</span>
+              {{if .PIN}}<span class="badge mute" title="Callers must key the PIN, then #">PIN</span>{{end}}
+              <span class="muted small">Edit</span>
+            </summary>
+            <form method="post" action="/conferences/{{.Number}}" class="stack">
+              <label>Name<input name="name" value="{{.Name}}" maxlength="40"></label>
+              <label>PIN <span class="hint">digits, blank for none</span><input name="pin" value="{{.PIN}}" inputmode="numeric" pattern="[0-9]{0,12}" class="mono" autocomplete="off"></label>
+              <div class="row">
+                <button class="btn primary">Save</button>
+              </div>
+            </form>
+            <form method="post" action="/conferences/{{.Number}}/delete" class="row"
+                  data-confirm="Delete room {{.Number}}? Anyone in it now is not disconnected.">
+              <button class="btn danger small">Delete room</button>
+            </form>
+          </details>
+        </li>
+        {{end}}
+      </ul>
+      {{else}}
+      <p class="empty">No rooms yet. Create one; any extension can then dial its number to join.</p>
+      {{end}}
+    </section>
+  </div>
+
+  <section class="panel">
+    <h2>Add room</h2>
+    {{with .Error}}<p class="error" role="alert">{{.}}</p>{{end}}
+    <form method="post" action="/conferences" class="stack">
+      <label>Number<input name="number" value="{{.Form.Number}}" inputmode="numeric" pattern="[0-9]{2,8}" placeholder="800" required class="mono"></label>
+      <label>Name<input name="name" value="{{.Form.Name}}" placeholder="Family" maxlength="40"></label>
+      <label>PIN <span class="hint">optional</span><input name="pin" value="{{.Form.PIN}}" inputmode="numeric" pattern="[0-9]{0,12}" class="mono" autocomplete="off"></label>
+      <button class="btn primary">Create room</button>
+    </form>
+    <p class="hint">Dial the room number to join. With a PIN, callers hear two short beeps, key the PIN, then #. A chime plays when someone joins or leaves, and music plays while you're alone.</p>
+  </section>
+</div>
+{{end}}{{end}}
+
+{{define "live"}}{{with .Data}}
+{{if .Active}}
+{{range .Active}}
+<div class="room-live">
+  <strong><span class="mono">{{.Number}}</span>{{with index $.Data.Names .Number}} · {{.}}{{end}}</strong>
+  <ul class="chips">
+    {{range .Members}}
+    <li><span><span class="lamp {{if .Admitted}}busy{{else}}off{{end}}"></span><span class="mono">{{.Ext}}</span>{{with .Name}} {{.}}{{end}}
+      <span class="muted">{{if .Admitted}}{{clock (since .Joined)}}{{else}}entering PIN{{end}}</span>{{if .Secure}} <span class="badge ok">SRTP</span>{{end}}</span></li>
+    {{end}}
+  </ul>
+</div>
+{{end}}
+{{else}}
+<p class="empty">No one is in a conference room.</p>
+{{end}}
+{{end}}{{end}}

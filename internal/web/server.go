@@ -20,6 +20,7 @@ import (
 	"time"
 
 	"github.com/JustSparx/SIPBXGO/internal/b2bua"
+	"github.com/JustSparx/SIPBXGO/internal/conference"
 	"github.com/JustSparx/SIPBXGO/internal/config"
 	"github.com/JustSparx/SIPBXGO/internal/security"
 	"github.com/JustSparx/SIPBXGO/internal/store"
@@ -38,6 +39,7 @@ type PBX interface {
 	SIPPort() int
 	TLSPort() int           // 0 when SIP over TLS is off
 	TLSInfo() *tlscert.Info // nil when SIP over TLS is off
+	Conferences() []conference.RoomStatus
 }
 
 type Server struct {
@@ -88,6 +90,11 @@ func (s *Server) routes() http.Handler {
 	mux.Handle("POST /extensions/{number}", auth(s.updateExtension))
 	mux.Handle("POST /extensions/{number}/secret", auth(s.resetSecret))
 	mux.Handle("POST /extensions/{number}/delete", auth(s.deleteExtension))
+	mux.Handle("GET /conferences", auth(s.conferences))
+	mux.Handle("GET /live/conferences", auth(s.conferencesLive))
+	mux.Handle("POST /conferences", auth(s.createRoom))
+	mux.Handle("POST /conferences/{number}", auth(s.updateRoom))
+	mux.Handle("POST /conferences/{number}/delete", auth(s.deleteRoom))
 	mux.Handle("GET /calls", auth(s.calls))
 	mux.Handle("GET /security", auth(s.securityPage))
 	mux.Handle("POST /security/unban", auth(s.unban))

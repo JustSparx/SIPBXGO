@@ -44,6 +44,8 @@ Usage:
   sipbxgo ext del <number>                      Delete an extension
   sipbxgo reg list                              Show registered phones
   sipbxgo call list [-n 20]                     Show recent call history
+  sipbxgo room add <number> [-name N] [-pin P]  Create a conference room
+  sipbxgo room list | set <number> [-name N] [-pin P] | del <number>
   sipbxgo admin add <name> [-password P]        Create a web UI admin (password generated if omitted)
   sipbxgo admin passwd <name> [-password P]     Reset an admin's password
   sipbxgo admin list | del <name>               List or delete admins
@@ -80,6 +82,8 @@ func run(args []string) error {
 		return withStore(cfg, func(st *store.Store) error { return callCmd(st, args[1:]) })
 	case "admin":
 		return withStore(cfg, func(st *store.Store) error { return adminCmd(st, args[1:]) })
+	case "room", "rooms":
+		return withStore(cfg, func(st *store.Store) error { return roomCmd(st, args[1:]) })
 	case "version", "-version", "--version":
 		fmt.Println("sipbxgo", pbx.Version)
 		return nil
