@@ -72,7 +72,7 @@ func TestParseNoAudio(t *testing.T) {
 
 func TestRewrite(t *testing.T) {
 	relay := netip.MustParseAddr("203.0.113.10")
-	out, err := Rewrite([]byte(phoneOffer), relay, 10002)
+	out, err := Rewrite([]byte(phoneOffer), relay, 10002, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -102,7 +102,7 @@ func TestRewriteKeepsHoldAndDropsExtras(t *testing.T) {
 		"m=audio 4000 RTP/AVP 0\r\na=rtcp:4001 IN IP4 10.0.0.1\r\na=rtcp-mux\r\n" +
 		"a=candidate:1 1 UDP 1 10.0.0.1 4000 typ host\r\na=ice-ufrag:x\r\n" +
 		"m=video 5000 RTP/AVP 96\r\na=rtcp:5001\r\n"
-	out, err := Rewrite([]byte(body), netip.MustParseAddr("203.0.113.10"), 10000)
+	out, err := Rewrite([]byte(body), netip.MustParseAddr("203.0.113.10"), 10000, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -125,7 +125,7 @@ func TestRewriteKeepsHoldAndDropsExtras(t *testing.T) {
 
 func TestRewriteToleratesBareLF(t *testing.T) {
 	body := strings.ReplaceAll(phoneOffer, "\r\n", "\n")
-	out, err := Rewrite([]byte(body), netip.MustParseAddr("203.0.113.10"), 10000)
+	out, err := Rewrite([]byte(body), netip.MustParseAddr("203.0.113.10"), 10000, nil)
 	if err != nil {
 		t.Fatal(err)
 	}

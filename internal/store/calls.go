@@ -15,6 +15,13 @@ const (
 	CallFailed      = "failed"
 )
 
+// Call encryption levels recorded in call history.
+const (
+	EncryptionNone    = "none"    // plain RTP on both sides
+	EncryptionPartial = "partial" // SRTP on one side only
+	EncryptionFull    = "full"    // SRTP on both sides
+)
+
 // CallRecord is one row of call history (CDR).
 type CallRecord struct {
 	ID         string
@@ -25,6 +32,7 @@ type CallRecord struct {
 	StartedAt  time.Time
 	AnsweredAt time.Time // zero if never answered
 	EndedAt    time.Time
+	Encryption string // "", none, partial, full ("" for calls never connected)
 }
 
 // Talk time, zero for unanswered calls.
@@ -41,16 +49,16 @@ func (s *Store) SaveCall(ctx context.Context, c *CallRecord) error {
 		answered = c.AnsweredAt.Unix()
 	}
 	_, err := s.db.ExecContext(ctx,
-		`INSERT OR REPLACE INTO calls (id, caller, callee, status, hangup_by, started_at, answered_at, ended_at)
-		 VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
-		c.ID, c.Caller, c.Callee, c.Status, c.HangupBy, c.StartedAt.Unix(), answered, c.EndedAt.Unix())
+		`INSERT OR REPLACE INTO calls (id, caller, callee, status, hangup_by, started_at, answered_at, ended_at, encryption)
+		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		c.ID, c.Caller, c.Callee, c.Status, c.HangupBy, c.StartedAt.Unix(), answered, c.EndedAt.Unix(), c.Encryption)
 	return err
 }
 
 // ListCalls returns calls newest first, optionally only those involving ext
 // (ext == "" means all), skipping offset rows.
 func (s *Store) ListCalls(ctx context.Context, ext string, limit, offset int) ([]*CallRecord, error) {
-	q := `SELECT id, caller, callee, status, hangup_by, started_at, answered_at, ended_at FROM calls`
+	q := `SELECT id, caller, callee, status, hangup_by, started_at, answered_at, ended_at, encryption FROM calls`
 	var args []any
 	if ext != "" {
 		q += ` WHERE caller = ? OR callee = ?`
@@ -67,7 +75,7 @@ func (s *Store) ListCalls(ctx context.Context, ext string, limit, offset int) ([
 	for rows.Next() {
 		var c CallRecord
 		var started, answered, ended int64
-		if err := rows.Scan(&c.ID, &c.Caller, &c.Callee, &c.Status, &c.HangupBy, &started, &answered, &ended); err != nil {
+		if err := rows.Scan(&c.ID, &c.Caller, &c.Callee, &c.Status, &c.HangupBy, &started, &answered, &ended, &c.Encryption); err != nil {
 			return nil, err
 		}
 		c.StartedAt, c.EndedAt = time.Unix(started, 0), time.Unix(ended, 0)

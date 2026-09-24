@@ -6,6 +6,7 @@ import (
 	"context"
 	"log/slog"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/JustSparx/SIPBXGO/internal/sipauth"
@@ -50,6 +51,13 @@ func (r *Registrar) HandleRegister(req *sip.Request, tx sip.ServerTransaction) {
 		return
 	}
 	ctx := context.Background()
+
+	if ext.RequireTLS && !strings.EqualFold(req.Transport(), "TLS") {
+		r.Log.Warn("registration refused: extension requires TLS", "ext", ext.Number,
+			"transport", req.Transport(), "ip", sipauth.SourceIP(req))
+		tx.Respond(sip.NewResponseFromRequest(req, 403, "TLS Required", nil))
+		return
+	}
 
 	// A phone may only register its own extension.
 	if to := req.To(); to == nil || to.Address.User != ext.Number {

@@ -15,12 +15,15 @@ import (
 // Extension is a phone account: the number other phones dial and the
 // credentials the phone registers with (username = number).
 type Extension struct {
-	Number    string
-	Name      string
-	Secret    string
-	Enabled   bool
-	CreatedAt time.Time
-	UpdatedAt time.Time
+	Number  string
+	Name    string
+	Secret  string
+	Enabled bool
+	// RequireTLS refuses registrations and calls that aren't over TLS, so
+	// the phone's signaling and audio are always encrypted.
+	RequireTLS bool
+	CreatedAt  time.Time
+	UpdatedAt  time.Time
 }
 
 var extNumberRe = regexp.MustCompile(`^[0-9]{2,8}$`)
@@ -42,9 +45,9 @@ func (s *Store) CreateExtension(ctx context.Context, e *Extension) error {
 	}
 	now := time.Now()
 	_, err := s.db.ExecContext(ctx,
-		`INSERT INTO extensions (number, name, secret, enabled, created_at, updated_at)
-		 VALUES (?, ?, ?, ?, ?, ?)`,
-		e.Number, e.Name, e.Secret, e.Enabled, now.Unix(), now.Unix())
+		`INSERT INTO extensions (number, name, secret, enabled, require_tls, created_at, updated_at)
+		 VALUES (?, ?, ?, ?, ?, ?, ?)`,
+		e.Number, e.Name, e.Secret, e.Enabled, e.RequireTLS, now.Unix(), now.Unix())
 	if err != nil {
 		if strings.Contains(err.Error(), "UNIQUE constraint failed") {
 			return fmt.Errorf("extension %s: %w", e.Number, ErrExists)
@@ -57,7 +60,7 @@ func (s *Store) CreateExtension(ctx context.Context, e *Extension) error {
 
 func (s *Store) GetExtension(ctx context.Context, number string) (*Extension, error) {
 	row := s.db.QueryRowContext(ctx,
-		`SELECT number, name, secret, enabled, created_at, updated_at
+		`SELECT number, name, secret, enabled, require_tls, created_at, updated_at
 		 FROM extensions WHERE number = ?`, number)
 	e, err := scanExtension(row)
 	if errors.Is(err, sql.ErrNoRows) {
@@ -68,7 +71,7 @@ func (s *Store) GetExtension(ctx context.Context, number string) (*Extension, er
 
 func (s *Store) ListExtensions(ctx context.Context) ([]*Extension, error) {
 	rows, err := s.db.QueryContext(ctx,
-		`SELECT number, name, secret, enabled, created_at, updated_at
+		`SELECT number, name, secret, enabled, require_tls, created_at, updated_at
 		 FROM extensions ORDER BY length(number), number`)
 	if err != nil {
 		return nil, err
@@ -85,16 +88,17 @@ func (s *Store) ListExtensions(ctx context.Context) ([]*Extension, error) {
 	return out, rows.Err()
 }
 
-// UpdateExtension saves Name, Secret and Enabled for an existing extension.
+// UpdateExtension saves Name, Secret, Enabled and RequireTLS for an
+// existing extension.
 func (s *Store) UpdateExtension(ctx context.Context, e *Extension) error {
 	if e.Secret == "" {
 		return errors.New("secret is required")
 	}
 	now := time.Now()
 	res, err := s.db.ExecContext(ctx,
-		`UPDATE extensions SET name = ?, secret = ?, enabled = ?, updated_at = ?
+		`UPDATE extensions SET name = ?, secret = ?, enabled = ?, require_tls = ?, updated_at = ?
 		 WHERE number = ?`,
-		e.Name, e.Secret, e.Enabled, now.Unix(), e.Number)
+		e.Name, e.Secret, e.Enabled, e.RequireTLS, now.Unix(), e.Number)
 	if err != nil {
 		return err
 	}
@@ -121,7 +125,7 @@ type scanner interface{ Scan(dest ...any) error }
 func scanExtension(r scanner) (*Extension, error) {
 	var e Extension
 	var created, updated int64
-	if err := r.Scan(&e.Number, &e.Name, &e.Secret, &e.Enabled, &created, &updated); err != nil {
+	if err := r.Scan(&e.Number, &e.Name, &e.Secret, &e.Enabled, &e.RequireTLS, &created, &updated); err != nil {
 		return nil, err
 	}
 	e.CreatedAt, e.UpdatedAt = time.Unix(created, 0), time.Unix(updated, 0)

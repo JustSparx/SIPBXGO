@@ -18,6 +18,8 @@ import (
 	"time"
 
 	"github.com/JustSparx/SIPBXGO/internal/sdp"
+	"github.com/pion/rtp"
+	"github.com/pion/srtp/v3"
 )
 
 // PortPool hands out even/odd (RTP/RTCP) port pairs from a fixed range.
@@ -78,6 +80,7 @@ func (p *PortPool) release(port int) {
 
 // path is one socket (RTP or RTCP) on a leg and where that phone is.
 type path struct {
+	rtcp    bool
 	conn    *net.UDPConn
 	peer    atomic.Pointer[netip.AddrPort] // where to send to the phone
 	latched atomic.Bool                    // peer came from real traffic, not SDP
@@ -93,9 +96,81 @@ type Leg struct {
 	mu      sync.Mutex
 	sdpPort int
 
+	// SRTP state; nil means plain RTP on this leg.
+	crypto atomic.Pointer[legCrypto]
+
 	PacketsIn  atomic.Uint64
 	PacketsOut atomic.Uint64
 	Dropped    atomic.Uint64 // from unexpected sources
+	BadCrypto  atomic.Uint64 // failed SRTP authentication/decryption
+}
+
+// legCrypto holds one SRTP context per direction and packet type. Each
+// context is only ever used by a single pump goroutine.
+type legCrypto struct {
+	in, out         *sdp.Crypto
+	inRTP, inRTCP   *srtp.Context // decrypt what the phone sends
+	outRTP, outRTCP *srtp.Context // encrypt what the phone receives
+}
+
+// Secure reports whether this leg uses SRTP.
+func (l *Leg) Secure() bool { return l.crypto.Load() != nil }
+
+func profile(suite string) (srtp.ProtectionProfile, error) {
+	switch suite {
+	case sdp.SuiteAES80:
+		return srtp.ProtectionProfileAes128CmHmacSha1_80, nil
+	case sdp.SuiteAES32:
+		return srtp.ProtectionProfileAes128CmHmacSha1_32, nil
+	}
+	return 0, fmt.Errorf("media: unsupported SRTP suite %q", suite)
+}
+
+func newContext(c *sdp.Crypto, replay bool) (*srtp.Context, error) {
+	prof, err := profile(c.Suite)
+	if err != nil {
+		return nil, err
+	}
+	var opts []srtp.ContextOption
+	if replay {
+		opts = append(opts, srtp.SRTPReplayProtection(64), srtp.SRTCPReplayProtection(64))
+	}
+	return srtp.CreateContext(c.Key[:16], c.Key[16:], prof, opts...)
+}
+
+// SetCrypto sets the SRTP keys for a leg: in is the phone's key (to decrypt
+// what it sends), out is the PBX's key for that phone (to encrypt what it
+// receives). Both nil makes the leg plain RTP. Unchanged keys keep their
+// contexts (and rollover state), so a re-INVITE repeating the same keys is
+// harmless.
+func (r *Relay) SetCrypto(leg int, in, out *sdp.Crypto) error {
+	l := r.Legs[leg]
+	if in == nil || out == nil {
+		if in != nil || out != nil {
+			return errors.New("media: SRTP needs keys in both directions")
+		}
+		l.crypto.Store(nil)
+		return nil
+	}
+	if cur := l.crypto.Load(); cur != nil && cur.in.Equal(in) && cur.out.Equal(out) {
+		return nil
+	}
+	lc := &legCrypto{in: in, out: out}
+	var err error
+	if lc.inRTP, err = newContext(in, true); err != nil {
+		return err
+	}
+	if lc.inRTCP, err = newContext(in, true); err != nil {
+		return err
+	}
+	if lc.outRTP, err = newContext(out, false); err != nil {
+		return err
+	}
+	if lc.outRTCP, err = newContext(out, false); err != nil {
+		return err
+	}
+	l.crypto.Store(lc)
+	return nil
 }
 
 // Relay connects leg 0 (caller) and leg 1 (callee).
@@ -126,6 +201,7 @@ func NewRelay(pool *PortPool, log *slog.Logger) (*Relay, error) {
 		}
 		l := &Leg{Port: port}
 		l.rtp.conn, l.rtcp.conn = rtp, rtcp
+		l.rtcp.rtcp = true
 		r.Legs[i] = l
 	}
 	r.touch()
@@ -179,9 +255,14 @@ func (r *Relay) Start() {
 
 // pump reads from one phone and forwards to the other, sending from the
 // socket that phone sends to (symmetric RTP keeps its NAT mapping open).
+// SRTP legs are decrypted on the way in and encrypted on the way out, so
+// each phone only ever sees its own keys.
 func (r *Relay) pump(in *Leg, from *path, out *Leg, to *path) {
 	defer r.wg.Done()
 	buf := make([]byte, 2048)
+	dec := make([]byte, 0, 2048)
+	enc := make([]byte, 0, 2048+64)
+	var hdr rtp.Header
 	for {
 		n, src, err := from.conn.ReadFromUDPAddrPort(buf)
 		if err != nil {
@@ -196,6 +277,19 @@ func (r *Relay) pump(in *Leg, from *path, out *Leg, to *path) {
 			in.Dropped.Add(1)
 			continue
 		}
+		pkt := buf[:n]
+		if lc := in.crypto.Load(); lc != nil {
+			if from.rtcp {
+				pkt, err = lc.inRTCP.DecryptRTCP(dec[:0], pkt, nil)
+			} else {
+				pkt, err = lc.inRTP.DecryptRTP(dec[:0], pkt, &hdr)
+			}
+			if err != nil {
+				// Wrong key, replay, or a spoofed packet: never latch on it.
+				in.BadCrypto.Add(1)
+				continue
+			}
+		}
 		if cur := from.peer.Load(); cur == nil || *cur != src || !from.latched.Load() {
 			from.peer.Store(&src)
 			from.latched.Store(true)
@@ -208,7 +302,17 @@ func (r *Relay) pump(in *Leg, from *path, out *Leg, to *path) {
 		if dst == nil {
 			continue
 		}
-		if _, err := to.conn.WriteToUDPAddrPort(buf[:n], *dst); err == nil {
+		if lc := out.crypto.Load(); lc != nil {
+			if to.rtcp {
+				pkt, err = lc.outRTCP.EncryptRTCP(enc[:0], pkt, nil)
+			} else {
+				pkt, err = lc.outRTP.EncryptRTP(enc[:0], pkt, &hdr)
+			}
+			if err != nil {
+				continue
+			}
+		}
+		if _, err := to.conn.WriteToUDPAddrPort(pkt, *dst); err == nil {
 			out.PacketsOut.Add(1)
 		}
 	}
@@ -243,6 +347,7 @@ func (r *Relay) Close() {
 // String summarizes packet counts for logs.
 func (r *Relay) String() string {
 	a, b := r.Legs[Caller], r.Legs[Callee]
-	return fmt.Sprintf("caller_sent=%d callee_sent=%d dropped=%d",
-		a.PacketsIn.Load(), b.PacketsIn.Load(), a.Dropped.Load()+b.Dropped.Load())
+	return fmt.Sprintf("caller_sent=%d callee_sent=%d dropped=%d bad_srtp=%d",
+		a.PacketsIn.Load(), b.PacketsIn.Load(), a.Dropped.Load()+b.Dropped.Load(),
+		a.BadCrypto.Load()+b.BadCrypto.Load())
 }

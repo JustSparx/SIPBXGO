@@ -15,7 +15,7 @@
 <section class="panel">
   {{if .Calls}}
   <div class="table-wrap"><table>
-    <thead><tr><th>When</th><th>From</th><th>To</th><th>Result</th><th class="num">Duration</th><th>Ended by</th></tr></thead>
+    <thead><tr><th>When</th><th>From</th><th>To</th><th>Result</th><th>Security</th><th class="num">Duration</th><th>Ended by</th></tr></thead>
     <tbody>
     {{range .Calls}}
       <tr>
@@ -23,6 +23,7 @@
         <td><a class="mono ext" href="/extensions/{{.Caller}}">{{.Caller}}</a> <span class="muted">{{index $.Data.Names .Caller}}</span></td>
         <td><a class="mono ext" href="/extensions/{{.Callee}}">{{.Callee}}</a> <span class="muted">{{index $.Data.Names .Callee}}</span></td>
         <td><span class="badge {{statusClass .Status}}">{{status .Status}}</span></td>
+        <td>{{if .Encryption}}<span class="badge {{encClass .Encryption}}">{{encLabel .Encryption}}</span>{{end}}</td>
         <td class="num mono">{{if .AnsweredAt.IsZero}}—{{else}}{{clock .Duration}}{{end}}</td>
         <td class="muted">{{.HangupBy}}</td>
       </tr>

@@ -18,11 +18,13 @@ import (
 	"github.com/JustSparx/SIPBXGO/internal/config"
 	"github.com/JustSparx/SIPBXGO/internal/security"
 	"github.com/JustSparx/SIPBXGO/internal/store"
+	"github.com/JustSparx/SIPBXGO/internal/tlscert"
 )
 
 type fakePBX struct {
 	bans     []security.Ban
 	unbanned []netip.Addr
+	tls      *tlscert.Info
 }
 
 func (f *fakePBX) ActiveCalls() []*b2bua.Call { return nil }
@@ -30,6 +32,13 @@ func (f *fakePBX) Bans() []security.Ban       { return f.bans }
 func (f *fakePBX) Unban(ip netip.Addr)        { f.unbanned = append(f.unbanned, ip) }
 func (f *fakePBX) PublicIP() netip.Addr       { return netip.MustParseAddr("203.0.113.10") }
 func (f *fakePBX) SIPPort() int               { return 5060 }
+func (f *fakePBX) TLSInfo() *tlscert.Info     { return f.tls }
+func (f *fakePBX) TLSPort() int {
+	if f.tls == nil {
+		return 0
+	}
+	return 5061
+}
 
 type harness struct {
 	t      *testing.T
@@ -319,4 +328,39 @@ func TestFormatting(t *testing.T) {
 	if clock(65*time.Second) != "1:05" || clock(3725*time.Second) != "1:02:05" {
 		t.Errorf("clock: %s %s", clock(65*time.Second), clock(3725*time.Second))
 	}
+}
+
+func TestEncryptionUI(t *testing.T) {
+	h := newHarness(t)
+	h.login()
+	ctx := context.Background()
+	h.st.CreateExtension(ctx, &store.Extension{Number: "101", Name: "Kitchen", Secret: "pw-pw-pw-pw", Enabled: true})
+
+	// TLS off: setup card shows plain settings, security page says so.
+	res, body := h.do("GET", "/extensions/101", nil)
+	expect(t, res, body, http.StatusOK, "Needs SIP over TLS", "(TCP if the router mangles SIP)")
+	res, body = h.do("GET", "/security", nil)
+	expect(t, res, body, http.StatusOK, "SIP over TLS is not configured")
+
+	// TLS on.
+	h.pbx.tls = &tlscert.Info{Source: "Traefik /traefik/acme.json", Names: []string{"pbx.example.com"}, NotAfter: time.Now().Add(60 * 24 * time.Hour)}
+	res, body = h.do("GET", "/extensions/101", nil)
+	expect(t, res, body, http.StatusOK, "5061", "SRTP (SDES", "Only TLS registrations")
+	res, body = h.do("GET", "/security", nil)
+	expect(t, res, body, http.StatusOK, "pbx.example.com", "in 59 days", "Traefik /traefik/acme.json")
+
+	// Toggle "require encryption".
+	h.do("POST", "/extensions/101", url.Values{"name": {"Kitchen"}, "enabled": {"on"}, "require_tls": {"on"}})
+	if ext, _ := h.st.GetExtension(ctx, "101"); !ext.RequireTLS {
+		t.Fatal("require_tls not saved")
+	}
+	res, body = h.do("GET", "/extensions/101", nil)
+	expect(t, res, body, http.StatusOK, "refused: this extension requires encryption")
+
+	// Encryption shows in call history.
+	now := time.Now()
+	h.st.SaveCall(ctx, &store.CallRecord{ID: "e1", Caller: "101", Callee: "102", Status: store.CallAnswered,
+		StartedAt: now, AnsweredAt: now, EndedAt: now, Encryption: store.EncryptionPartial})
+	res, body = h.do("GET", "/calls", nil)
+	expect(t, res, body, http.StatusOK, "Partly encrypted")
 }

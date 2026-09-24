@@ -40,6 +40,7 @@ Usage:
   sipbxgo ext list [-show-secrets]              List extensions
   sipbxgo ext show <number>                     Show one extension, including its secret
   sipbxgo ext set <number> [-name N] [-secret S] [-new-secret] [-enable|-disable]
+                    [-require-tls|-allow-plain]
   sipbxgo ext del <number>                      Delete an extension
   sipbxgo reg list                              Show registered phones
   sipbxgo call list [-n 20]                     Show recent call history

@@ -23,6 +23,7 @@ import (
 	"github.com/JustSparx/SIPBXGO/internal/config"
 	"github.com/JustSparx/SIPBXGO/internal/security"
 	"github.com/JustSparx/SIPBXGO/internal/store"
+	"github.com/JustSparx/SIPBXGO/internal/tlscert"
 )
 
 //go:embed templates static
@@ -35,6 +36,8 @@ type PBX interface {
 	Unban(ip netip.Addr)
 	PublicIP() netip.Addr
 	SIPPort() int
+	TLSPort() int           // 0 when SIP over TLS is off
+	TLSInfo() *tlscert.Info // nil when SIP over TLS is off
 }
 
 type Server struct {

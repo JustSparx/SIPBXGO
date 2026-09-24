@@ -50,6 +50,16 @@ type Config struct {
 	// either phone (e.g. a phone lost power mid-call).
 	MediaTimeout time.Duration
 
+	// SIP over TLS. TLSAddr is the listen address ("off" disables). The
+	// certificate comes from PEM files (TLSCert/TLSKey) or from Traefik's
+	// acme.json (TLSAcmeJSON) for TLSDomain. With no certificate source
+	// configured, TLS stays off.
+	TLSAddr     string
+	TLSCert     string
+	TLSKey      string
+	TLSAcmeJSON string
+	TLSDomain   string
+
 	// HTTPAddr is where the web UI listens ("off" disables it). The default
 	// is loopback-only; put it behind a TLS reverse proxy to reach it remotely.
 	HTTPAddr string
@@ -70,6 +80,18 @@ func Load() (*Config, error) {
 		LogLevel:  env("SIPBX_LOG_LEVEL", "info"),
 		HTTPAddr:  env("SIPBX_HTTP_ADDR", "127.0.0.1:8080"),
 		SIPDomain: env("SIPBX_SIP_DOMAIN", ""),
+
+		TLSAddr:     env("SIPBX_TLS_ADDR", ":5061"),
+		TLSCert:     env("SIPBX_TLS_CERT", ""),
+		TLSKey:      env("SIPBX_TLS_KEY", ""),
+		TLSAcmeJSON: env("SIPBX_TLS_ACME_JSON", ""),
+	}
+	c.TLSDomain = env("SIPBX_TLS_DOMAIN", c.SIPDomain)
+	if (c.TLSCert == "") != (c.TLSKey == "") {
+		return nil, fmt.Errorf("SIPBX_TLS_CERT and SIPBX_TLS_KEY must be set together")
+	}
+	if c.TLSAcmeJSON != "" && c.TLSDomain == "" {
+		return nil, fmt.Errorf("SIPBX_TLS_ACME_JSON needs SIPBX_TLS_DOMAIN (or SIPBX_SIP_DOMAIN) to pick the certificate")
 	}
 
 	var err error
@@ -109,6 +131,11 @@ func Load() (*Config, error) {
 		return nil, err
 	}
 	return c, nil
+}
+
+// TLSEnabled reports whether SIP over TLS should be served.
+func (c *Config) TLSEnabled() bool {
+	return c.TLSAddr != "off" && (c.TLSCert != "" || c.TLSAcmeJSON != "")
 }
 
 // parsePortRange parses "10000-10999".

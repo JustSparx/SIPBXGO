@@ -66,13 +66,13 @@ func extCmd(st *store.Store, args []string) error {
 			online[r.Extension]++
 		}
 		w := tabwriter.NewWriter(os.Stdout, 0, 0, 2, ' ', 0)
-		fmt.Fprint(w, "EXT\tNAME\tENABLED\tPHONES")
+		fmt.Fprint(w, "EXT\tNAME\tENABLED\tTLS ONLY\tPHONES")
 		if *show {
 			fmt.Fprint(w, "\tSECRET")
 		}
 		fmt.Fprintln(w)
 		for _, e := range exts {
-			fmt.Fprintf(w, "%s\t%s\t%v\t%d", e.Number, e.Name, e.Enabled, online[e.Number])
+			fmt.Fprintf(w, "%s\t%s\t%v\t%v\t%d", e.Number, e.Name, e.Enabled, e.RequireTLS, online[e.Number])
 			if *show {
 				fmt.Fprintf(w, "\t%s", e.Secret)
 			}
@@ -88,8 +88,8 @@ func extCmd(st *store.Store, args []string) error {
 		if err != nil {
 			return err
 		}
-		fmt.Printf("extension: %s\nname:      %s\nenabled:   %v\nusername:  %s\npassword:  %s\ncreated:   %s\n",
-			e.Number, e.Name, e.Enabled, e.Number, e.Secret, e.CreatedAt.Format(time.RFC3339))
+		fmt.Printf("extension: %s\nname:      %s\nenabled:   %v\ntls only:  %v\nusername:  %s\npassword:  %s\ncreated:   %s\n",
+			e.Number, e.Name, e.Enabled, e.RequireTLS, e.Number, e.Secret, e.CreatedAt.Format(time.RFC3339))
 		return nil
 
 	case "set":
@@ -99,6 +99,8 @@ func extCmd(st *store.Store, args []string) error {
 		newSecret := fs.Bool("new-secret", false, "generate a new password")
 		enable := fs.Bool("enable", false, "enable the extension")
 		disable := fs.Bool("disable", false, "disable the extension")
+		requireTLS := fs.Bool("require-tls", false, "only accept TLS registrations and SRTP audio")
+		allowPlain := fs.Bool("allow-plain", false, "accept unencrypted phones again")
 		if err := fs.Parse(args); err != nil {
 			return err
 		}
@@ -128,6 +130,15 @@ func extCmd(st *store.Store, args []string) error {
 		}
 		if *disable {
 			e.Enabled = false
+		}
+		if *requireTLS && *allowPlain {
+			return fmt.Errorf("-require-tls and -allow-plain are mutually exclusive")
+		}
+		if *requireTLS {
+			e.RequireTLS = true
+		}
+		if *allowPlain {
+			e.RequireTLS = false
 		}
 		if err := st.UpdateExtension(ctx, e); err != nil {
 			return err

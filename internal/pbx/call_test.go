@@ -29,6 +29,9 @@ type callPhone struct {
 	rtp      *net.UDPConn
 	behavior string // "answer", "busy", "ring"
 
+	transport string      // "UDP" or "TLS"
+	key       *sdp.Crypto // phone's SRTP key; nil for plain RTP
+
 	incoming  chan *sipgo.DialogServerSession // ringing calls
 	answered  chan *sipgo.DialogServerSession // calls this phone answered and got ACK for
 	reinvites chan *sip.Request
@@ -61,7 +64,7 @@ func newCallPhone(t *testing.T, pbx, ext, behavior string) *callPhone {
 		t.Fatal(err)
 	}
 	p := &callPhone{
-		t: t, ext: ext, pbx: pbx, client: client, rtp: rtp, behavior: behavior,
+		t: t, ext: ext, pbx: pbx, client: client, rtp: rtp, behavior: behavior, transport: "UDP",
 		contact:   sip.ContactHeader{Address: sip.Uri{Scheme: "sip", User: ext, Host: "127.0.0.1", Port: addr.Port}},
 		incoming:  make(chan *sipgo.DialogServerSession, 4),
 		answered:  make(chan *sipgo.DialogServerSession, 4),
@@ -98,11 +101,16 @@ func newCallPhone(t *testing.T, pbx, ext, behavior string) *callPhone {
 }
 
 // offer is the phone's SDP; like a phone behind NAT it shows a private IP.
+// SRTP phones use RTP/SAVP with their key.
 func (p *callPhone) offer(extra string) []byte {
 	port := p.rtp.LocalAddr().(*net.UDPAddr).Port
+	proto, crypto := "RTP/AVP", ""
+	if p.key != nil {
+		proto, crypto = "RTP/SAVP", "a="+p.key.String()+"\r\n"
+	}
 	return []byte("v=0\r\no=- 1 1 IN IP4 192.168.1.50\r\ns=-\r\nc=IN IP4 192.168.1.50\r\nt=0 0\r\n" +
-		fmt.Sprintf("m=audio %d RTP/AVP 0 101\r\n", port) +
-		"a=rtpmap:0 PCMU/8000\r\na=rtpmap:101 telephone-event/8000\r\n" + extra)
+		fmt.Sprintf("m=audio %d %s 0 101\r\n", port, proto) +
+		"a=rtpmap:0 PCMU/8000\r\na=rtpmap:101 telephone-event/8000\r\n" + crypto + extra)
 }
 
 func (p *callPhone) onInvite(req *sip.Request, tx sip.ServerTransaction) {
@@ -150,6 +158,7 @@ func (p *callPhone) register(pass string) {
 	req := sip.NewRequest(sip.REGISTER, uri)
 	req.AppendHeader(&p.contact)
 	req.AppendHeader(sip.NewHeader("Expires", "120"))
+	req.SetTransport(p.transport)
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 	defer cancel()
 	res, err := p.client.Do(ctx, req, sipgo.ClientRequestRegisterBuild)
@@ -164,7 +173,7 @@ func (p *callPhone) register(pass string) {
 // call dials target and waits for the final answer.
 func (p *callPhone) call(ctx context.Context, target, pass string) (*sipgo.DialogClientSession, error) {
 	var uri sip.Uri
-	sip.ParseUri(fmt.Sprintf("sip:%s@%s", target, p.pbx), &uri)
+	sip.ParseUri(fmt.Sprintf("sip:%s@%s;transport=%s", target, p.pbx, strings.ToLower(p.transport)), &uri)
 	from := &sip.FromHeader{Address: sip.Uri{Scheme: "sip", User: p.ext, Host: "127.0.0.1"}, Params: sip.NewParams()}
 	from.Params.Add("tag", sip.GenerateTagN(10))
 	dc, err := p.clients.Invite(ctx, uri, p.offer(""), from, sip.NewHeader("Content-Type", "application/sdp"))
