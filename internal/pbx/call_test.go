@@ -29,7 +29,8 @@ type callPhone struct {
 	rtp      *net.UDPConn
 	behavior string // "answer", "busy", "ring"
 
-	incoming  chan *sipgo.DialogServerSession // answered or ringing calls
+	incoming  chan *sipgo.DialogServerSession // ringing calls
+	answered  chan *sipgo.DialogServerSession // calls this phone answered and got ACK for
 	reinvites chan *sip.Request
 	byes      chan struct{}
 	cancelled chan struct{}
@@ -63,6 +64,7 @@ func newCallPhone(t *testing.T, pbx, ext, behavior string) *callPhone {
 		t: t, ext: ext, pbx: pbx, client: client, rtp: rtp, behavior: behavior,
 		contact:   sip.ContactHeader{Address: sip.Uri{Scheme: "sip", User: ext, Host: "127.0.0.1", Port: addr.Port}},
 		incoming:  make(chan *sipgo.DialogServerSession, 4),
+		answered:  make(chan *sipgo.DialogServerSession, 4),
 		reinvites: make(chan *sip.Request, 4),
 		byes:      make(chan struct{}, 4),
 		cancelled: make(chan struct{}, 4),
@@ -133,7 +135,11 @@ func (p *callPhone) onInvite(req *sip.Request, tx sip.ServerTransaction) {
 		p.incoming <- ds
 		if err := ds.RespondSDP(p.offer("")); err != nil {
 			p.t.Errorf("%s: answer: %v", p.ext, err)
+			return
 		}
+		// Hand the dialog over only now: the channel send orders the
+		// session's writes before the test's use of it (race detector).
+		p.answered <- ds
 	}
 }
 
@@ -310,9 +316,7 @@ func TestCalleeHangsUp(t *testing.T) {
 	if _, err := a.call(ctx, "102", "pw101"); err != nil {
 		t.Fatal(err)
 	}
-	ds := wait(t, b.incoming, "incoming call")
-	// Give the caller's ACK time to reach the PBX so the call is confirmed.
-	time.Sleep(100 * time.Millisecond)
+	ds := wait(t, b.answered, "callee answered")
 	if err := ds.Bye(ctx); err != nil {
 		t.Fatalf("callee bye: %v", err)
 	}
@@ -429,9 +433,8 @@ func TestCalleePutsCallOnHold(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	ds := wait(t, b.incoming, "incoming call")
+	ds := wait(t, b.answered, "callee answered")
 	portA := relayPort(t, dc.InviteResponse.Body())
-	time.Sleep(100 * time.Millisecond) // let the caller's ACK confirm the call
 
 	reinv := sip.NewRequest(sip.INVITE, ds.InviteRequest.Contact().Address)
 	reinv.SetBody(b.offer("a=inactive\r\n"))
