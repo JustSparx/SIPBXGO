@@ -11,6 +11,7 @@ import (
 	"net"
 	"net/netip"
 	"strings"
+	"syscall"
 	"time"
 
 	"github.com/JustSparx/SIPBXGO/internal/audio"
@@ -61,6 +62,10 @@ func New(cfg *config.Config, st *store.Store, log *slog.Logger) (*Server, error)
 	ua, err := sipgo.NewUA(
 		sipgo.WithUserAgent("SIPBXGO/"+Version),
 		sipgo.WithUserAgentHostname(publicIP.String()),
+		sipgo.WithUserAgentTransportLayerOptions(sip.WithTransportLayerTransports(sip.TransportsConfig{
+			TCP: &sip.TransportTCP{DialerCreate: noDial},
+			TLS: &sip.TransportTLS{TransportTCP: &sip.TransportTCP{DialerCreate: noDial}},
+		})),
 	)
 	if err != nil {
 		return nil, fmt.Errorf("sip user agent: %w", err)
@@ -129,6 +134,20 @@ func New(cfg *config.Config, st *store.Store, log *slog.Logger) (*Server, error)
 	srv.OnRefer(s.guarded(engine.HandleRefer))
 	srv.OnNoRoute(s.guarded(s.handleNotAllowed))
 	return s, nil
+}
+
+var errNoDial = errors.New("SIPBXGO does not open TCP/TLS connections; phones connect to it")
+
+// noDial stops sipgo from opening TCP or TLS connections. The PBX answers and
+// calls phones over the connections they keep open to it; a new connection to
+// a phone behind NAT can't get through anyway. Without this, when a request's
+// sender hangs up before the answer (as toll-fraud scanners do), sipgo dials
+// the sender back and holds up every other incoming request until that dial
+// times out, 10 seconds per probe.
+func noDial(net.Addr) net.Dialer {
+	return net.Dialer{ControlContext: func(context.Context, string, string, syscall.RawConn) error {
+		return errNoDial
+	}}
 }
 
 // resolvePublicIP uses the configured address, or else the local address
@@ -241,7 +260,7 @@ func (s *Server) Listen() error {
 		udp.Close()
 		return fmt.Errorf("listen tcp %s: %w", s.cfg.SIPAddr, err)
 	}
-	s.udp, s.tcp = udp, tcp
+	s.udp, s.tcp = udp, s.guardListener(tcp)
 
 	if s.cert != nil {
 		addr := s.cfg.TLSAddr
@@ -254,7 +273,8 @@ func (s *Server) Listen() error {
 			tcp.Close()
 			return fmt.Errorf("listen tls %s: %w", addr, err)
 		}
-		s.tls = tls.NewListener(ln, s.cert.TLSConfig())
+		// Guard outside TLS, so only SIP messages count, not the handshake.
+		s.tls = s.guardListener(tls.NewListener(ln, s.cert.TLSConfig()))
 	}
 
 	udpAddr := udp.LocalAddr().(*net.UDPAddr)
@@ -262,6 +282,10 @@ func (s *Server) Listen() error {
 	laddr := sip.Addr{IP: udpAddr.IP, Port: udpAddr.Port}
 	s.engine.Bind(s.publicIP, udpAddr.Port, tcpAddr.Port, s.TLSPort(), s.cfg.TLSDomain, laddr)
 	return nil
+}
+
+func (s *Server) guardListener(ln net.Listener) net.Listener {
+	return &security.Listener{Listener: ln, Bans: s.bans, Log: s.log}
 }
 
 // UDPAddr is the bound UDP address (useful when SIPAddr uses port 0).

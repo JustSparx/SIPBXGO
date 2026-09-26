@@ -352,7 +352,7 @@ Advanced settings (set via `docker-compose.override.yml`):
 | `SIPBX_MIN_EXPIRES` / `SIPBX_MAX_EXPIRES` | `60` / `300` | Allowed registration interval (s). Short intervals keep NAT mappings open. |
 | `SIPBX_RING_TIMEOUT` | `60s` | How long a call rings before giving up |
 | `SIPBX_MEDIA_TIMEOUT` | `5m` | Hang up when a phone has sent no audio for this long (e.g. it lost power) |
-| `SIPBX_BAN_THRESHOLD` / `SIPBX_BAN_WINDOW` / `SIPBX_BAN_DURATION` | `5` / `10m` / `1h` | Failed logins within the window before a ban, and how long the ban lasts (threshold 0 disables) |
+| `SIPBX_BAN_THRESHOLD` / `SIPBX_BAN_WINDOW` / `SIPBX_BAN_DURATION` | `5` / `10m` / `1h` | Failures (bad logins, hit-and-run requests) within the window before a ban, and how long the ban lasts (threshold 0 disables) |
 | `SIPBX_TLS_DOMAIN` | `SIPBX_DOMAIN` | Certificate name to use, if different from the domain |
 | `SIPBX_TLS_ADDR` | `:5061` | TLS listen address (`off` disables TLS) |
 | `SIPBX_REALM` | `sipbxgo` | Digest authentication realm |
@@ -373,10 +373,12 @@ services:
 ## Security
 
 - **Scanners are expected.** Any public SIP port gets probed within hours.
-  Failed logins, unknown extensions and known scanner tools lead to an
+  Failed logins, unknown extensions, known scanner tools and TCP/TLS
+  hit-and-run requests (sent, then hung up on before the answer) lead to an
   automatic ban, and banned IPs get **no response at all**. Unknown extensions
   and wrong passwords get the same answer, so scanners can't find which
-  extensions exist.
+  extensions exist. The PBX never opens TCP/TLS connections itself: phones
+  connect to it, and it answers and calls them over that connection.
 - **Calls are authenticated too.** Caller ID is always the extension that
   logged in.
 - **The media relay is locked down.** It only accepts audio from the IP of the
