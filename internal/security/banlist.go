@@ -1,8 +1,9 @@
 // Package security keeps SIP scanners and password guessers out.
 //
-// Any public SIP port gets probed within hours. The BanList counts auth
-// failures per source IP and, past a threshold, silently ignores that IP for
-// a while. Well-known scanner User-Agents are banned on first contact.
+// Any public SIP port gets probed within hours. The BanList counts failures
+// per source IP (bad passwords, and requests abandoned before their answer)
+// and, past a threshold, silently ignores that IP for a while. Well-known
+// scanner User-Agents are banned on first contact.
 package security
 
 import (
