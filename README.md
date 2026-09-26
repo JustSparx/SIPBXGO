@@ -489,6 +489,9 @@ later versions, for larger setups:
 - **Busy lights (BLF)** on phone line keys.
 - **Call transfer** (blind and attended).
 - **Voicemail.**
+- **Mobile softphones:** push notifications, so a phone app that the OS has
+  put to sleep (Linphone on iOS, for example) still rings for incoming calls.
+  Version 1.0 is built for desk phones, which stay registered.
 
 ## Contributing
 
